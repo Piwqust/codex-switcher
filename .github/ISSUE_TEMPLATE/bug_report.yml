@@ -1,0 +1,61 @@
+name: Bug report
+description: Something does not work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please never attach `auth.json`, `accounts.dat` or a saved sign-in: they let anyone use your accounts.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected and what happened instead.
+      placeholder: |
+        1. Opened the picker with Ctrl+Alt+X
+        2. Clicked the "Work" card
+        3. Codex stayed on the previous account
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Switcher version
+      description: Settings → About.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: codex
+    attributes:
+      label: Which Codex
+      multiple: true
+      options:
+        - Codex app (Microsoft Store)
+        - Codex CLI
+        - VS Code or another editor
+    validations:
+      required: true
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Processor
+      options:
+        - x64 (Intel or AMD)
+        - ARM64
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Press Win+R and run `winver`.
+      placeholder: "Windows 11 24H2, build 26100"
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Error log
+      description: The contents of `%LOCALAPPDATA%\CodexAccounts\switcher-error.log`, if it exists. It never contains tokens.
+      render: text
