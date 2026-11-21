@@ -5,11 +5,11 @@
 .DESCRIPTION
     Runs tools\demo.ps1 off screen for each look and saves the picker, the account details,
     the tray list and Settings with tools\capture.ps1, and the browser list with Microsoft
-    Edge running headless. Nothing appears on screen. Pass your display scale so the Settings
-    click lands on its button.
+    Edge running headless. Nothing appears on screen. The windows say where their buttons are,
+    so the display scale needn't be passed.
 
 .EXAMPLE
-    .\tools\make-images.ps1 -Scale 1.25
+    .\tools\make-images.ps1
 #>
 param(
     [string]$Exe = (Join-Path $PSScriptRoot '..\build\x64\CodexAccountSwitcher.exe'),
@@ -21,19 +21,21 @@ $demo = Join-Path $PSScriptRoot 'demo.ps1'
 $capture = Join-Path $PSScriptRoot 'capture.ps1'
 $edge = @("${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe", "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
 $edgeProfile = Join-Path $env:TEMP 'cas-demo-edge'
+# One scale for every picture. Left to the monitor, an off-screen window takes the scale of
+# whichever screen it was created on, and the pictures came out at 100% or 125% by chance.
+$shotScale = 1.25
 
 foreach ($lang in 'en', 'ru') {
     $dir = if ($lang -eq 'en') { $images } else { Join-Path $images 'ru' }
     New-Item -ItemType Directory -Force $dir | Out-Null
     foreach ($theme in 'dark', 'light') {
-        & $demo -Exe $Exe -Theme $theme -Language $lang -KeepFlyout -CodexOpen -Web:($theme -eq 'dark') | Out-Null
+        & $demo -Exe $Exe -Theme $theme -Language $lang -Scale $shotScale -KeepFlyout -CodexOpen -Web:($theme -eq 'dark') | Out-Null
         Start-Sleep -Seconds 2
         & $capture -Exe $Exe -Window picker -Out (Join-Path $dir "picker-$theme.png") | Out-Null
         if ($theme -ne 'dark') { continue }
         # Details first: it fetches the statistics the tray list's top line shows.
         & $capture -Exe $Exe -Window details -OpenDetails -Out (Join-Path $dir 'details.png') | Out-Null
         & $capture -Exe $Exe -Window flyout -OpenFlyout -Out (Join-Path $dir 'tray.png') | Out-Null
-        & $capture -Exe $Exe -Window settings -ClickSettings -Scale $Scale -Out (Join-Path $dir 'settings.png') | Out-Null
         if ($edge) {
             $png = Join-Path $dir 'browser.png'
             Remove-Item $png -ErrorAction SilentlyContinue
@@ -43,6 +45,12 @@ foreach ($lang in 'en', 'ru') {
             [void]$p.WaitForExit(30000)
         }
     }
+    # Settings on its Switching page, from a demo without the browser list, so the page ends in view.
+    & $demo -Exe $Exe -Theme dark -Language $lang -Scale $shotScale -CodexOpen | Out-Null
+    Start-Sleep -Seconds 2
+    & $capture -Exe $Exe -Window settings -ClickSettings -Scale $Scale -Control 'nav:1' -Out (Join-Path $dir 'settings.png') | Out-Null
+    # The account manager with its first card open: an account from today's order, half secured.
+    & $capture -Exe $Exe -Window manager -OpenManager -Scale $Scale -Control 'mrow:0' -Out (Join-Path $dir 'manager.png') | Out-Null
 }
 Get-Process CodexAccountSwitcher -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq (Resolve-Path $Exe).Path } | Stop-Process -Force
 Remove-Item $edgeProfile -Recurse -Force -ErrorAction SilentlyContinue

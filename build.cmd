@@ -48,8 +48,8 @@ for %%d in ("%OUT%") do if not exist "%%~dpd" mkdir "%%~dpd"
 rc /nologo /fo "%OBJ%\app.res" src\app.rc || exit /b 1
 cl /nologo /std:c++17 /O1 /GL /MT /EHsc /utf-8 /W3 /DNDEBUG /Fo"%OBJ%\\" ^
    %ENTRY% src\app.cpp src\core.cpp src\codex.cpp src\net.cpp src\accounts.cpp src\login.cpp src\compat.cpp src\recovery.cpp ^
-   src\web.cpp src\shell.cpp src\gfx.cpp src\picker.cpp src\flyout.cpp src\settings.cpp src\details.cpp src\dialogs.cpp src\update.cpp "%OBJ%\app.res" ^
+   src\web.cpp src\shell.cpp src\gfx.cpp src\picker.cpp src\flyout.cpp src\settings.cpp src\details.cpp src\dialogs.cpp src\update.cpp src\logins.cpp src\manager.cpp src\uia.cpp "%OBJ%\app.res" ^
    /link /OPT:REF /OPT:ICF /LTCG /SUBSYSTEM:%SUBSYSTEM% /MANIFEST:NO /out:"%OUT%" ^
    user32.lib gdi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib dwmapi.lib d2d1.lib dwrite.lib windowscodecs.lib ^
-   advapi32.lib comctl32.lib comdlg32.lib propsys.lib shlwapi.lib bcrypt.lib crypt32.lib winhttp.lib ws2_32.lib iphlpapi.lib || exit /b 1
+   advapi32.lib comctl32.lib comdlg32.lib propsys.lib shlwapi.lib bcrypt.lib crypt32.lib winhttp.lib ws2_32.lib iphlpapi.lib uxtheme.lib uiautomationcore.lib || exit /b 1
 echo Built %OUT% (%ARCH%)

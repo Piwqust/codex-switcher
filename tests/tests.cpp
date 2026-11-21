@@ -5,6 +5,7 @@
 #include "../src/codex.h"
 #include "../src/net.h"
 #include "../src/recovery.h"
+#include "../src/logins.h"
 #include <shellapi.h>
 #include <winhttp.h>
 #include <atomic>
@@ -353,13 +354,87 @@ static void Switching(const std::wstring& dir) {
     Check(!bytes.empty() && bytes.find("a-rotated-by-codex") == std::string::npos && bytes.find("a@x.com") == std::string::npos, "nothing readable in the vault file");
 }
 
+// 2FA codes, reading a shop's message, and the saved sign-in details.
+static void Logins(const std::wstring& dir) {
+    // RFC 4226, appendix D, and RFC 6238, appendix B (SHA-1).
+    std::string secret = "12345678901234567890";
+    const wchar_t* hotp[] = { L"755224", L"287082", L"359152", L"969429", L"338314", L"254676", L"287922", L"162583", L"399871", L"520489" };
+    for (int i = 0; i < 10; i++) Check(Totp::Hotp(secret, i) == hotp[i], "HOTP vectors");
+    Check(Totp::Hotp(secret, 59 / 30, 8) == L"94287082" && Totp::Hotp(secret, 1111111109 / 30, 8) == L"07081804" && Totp::Hotp(secret, 2000000000 / 30, 8) == L"69279037", "TOTP vectors");
+    std::wstring key = L"GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    Check(Totp::Decode(key) == secret, "base32");
+    Check(Totp::Code(key, 59) == L"287082" && Totp::Code(key, 1234567890) == L"005924", "codes from a key");
+    Check(Totp::Clean(L"gezd gnbv gy3t qojq gezd gnbv gy3t qojq") == key, "a key with spaces, in lower case");
+    Check(Totp::Clean(L"otpauth://totp/OpenAI:me%40x.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=OpenAI") == key, "an otpauth link");
+    Check(Totp::Clean(L"https://2fa.live/tok/GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ") == key, "a 2fa.live link");
+    Check(Totp::Clean(L"123456").empty() && Totp::Clean(L"Pass-word!1").empty() && Totp::Clean(L"GEZDGNBV").empty(), "not keys");
+    Check(Totp::SecondsLeft(59) == 1 && Totp::SecondsLeft(60) == 30 && Totp::Spaced(L"287082") == L"287 082", "countdown and spacing");
+
+    // The message a shop sends.
+    long long now = 1763700000000;
+    auto p = Creds::Parse(L"✅ Заказ выдан\r\n\r\nЗаказ: STORE-170000000000000-12ab1c\r\n"
+                          L"Товар: ChatGPT plus | Apple Pay | 1M | W24H\r\n"
+                          L"Количество в этой выдаче: 2\r\n\r\n"
+                          L"\U0001F510 Данные товара:\r\nusername|pass|2fa-code\r\n"
+                          L"first.buyer@example.com|Pa55:word|gezd gnbv gy3t qojq gezd gnbv gy3t qojq\r\n"
+                          L"2) second@example.com | other-pass | https://2fa.live/tok/GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\r\n"
+                          L"broken@|x|y\r\nИнструкция: смените пароль", now);
+    Check(p.order == L"STORE-170000000000000-12ab1c" && p.product == L"ChatGPT plus | Apple Pay | 1M | W24H", "order and product");
+    Check(p.months == 1 && p.warrantyMs == 24 * 3600000ll, "a month paid, a 24-hour warranty");
+    Check(p.creds.size() == 2 && p.bad == 1, "two accounts, one broken line, the template skipped");
+    Check(p.creds[0].email == L"first.buyer@example.com" && p.creds[0].password == L"Pa55:word" && p.creds[0].key == key, "the first account");
+    Check(p.creds[1].email == L"second@example.com" && p.creds[1].password == L"other-pass" && p.creds[1].key == key, "the second, numbered, with a link for its key");
+    Check(p.creds[0].warrantyUntil == now + 86400000ll && p.creds[0].paidUntil == now + 30ll * 86400000ll && p.creds[0].order == p.order, "dates");
+    auto bare = Creds::Parse(L"me@x.com:pw1:GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ\nyou@x.com\tpw2\nthem@x.com;pw3;654321", now);
+    Check(bare.creds.size() == 3 && bare.creds[0].key == key && bare.creds[1].password == L"pw2" && bare.creds[2].key.empty() && bare.creds[2].note == L"2FA: 654321", "bare lines");
+
+    // Merging keeps what was changed here.
+    std::vector<Cred> list;
+    auto m = Creds::Merge(list, p);
+    Check(m.added == 2 && list.size() == 2, "added");
+    list[0].password = L"new-one"; list[0].passwordDone = true;
+    m = Creds::Merge(list, p);
+    Check(m.added == 0 && m.updated == 0 && list[0].password == L"new-one", "the same order again changes nothing");
+    auto renewal = Creds::Parse(L"Order: STORE-2\nProduct: ChatGPT plus | 1M | W24H\nfirst.buyer@example.com|old-pass|GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", now + 86400000ll * 31);
+    m = Creds::Merge(list, renewal);
+    Check(m.updated == 1 && list[0].order == L"STORE-2" && list[0].paidUntil == now + 86400000ll * 61 && list[0].password == L"new-one", "a new month: new dates, the changed password kept");
+
+    // Passwords and stages.
+    auto pw = Creds::NewPassword();
+    bool lower = false, upper = false, digit = false, symbol = false;
+    for (wchar_t c : pw) { lower |= iswlower(c) != 0; upper |= iswupper(c) != 0; digit |= iswdigit(c) != 0; symbol |= wcschr(L"!@#$%*-_+=?", c) != nullptr; }
+    Check(pw.size() == 20 && lower && upper && digit && symbol && pw != Creds::NewPassword(), "new passwords");
+    Cred c;
+    Check(Creds::StageOf(c, false, 0, now) == Creds::Stage::New, "new");
+    c.passwordDone = true;
+    Check(Creds::StageOf(c, false, 0, now) == Creds::Stage::Securing && Creds::StepsDone(c, false) == 1, "securing");
+    c.keyDone = c.phoneDone = true;
+    Check(Creds::StageOf(c, false, 0, now) == Creds::Stage::SignIn, "ready to sign in");
+    Check(Creds::StageOf(c, true, now + 1000, now) == Creds::Stage::Ready && Creds::StepsDone(c, true) == 4, "ready");
+    Check(Creds::StageOf(c, true, now - 1000, now) == Creds::Stage::Expired, "expired");
+
+    // Saved and read back, encrypted outside the demo.
+    Paths::Root = dir;
+    Paths::Demo = false;
+    Creds::Save(list);
+    auto raw = Util::ReadBytes(Creds::File());
+    Check(!raw.empty() && raw.find("first.buyer") == std::string::npos && raw.find("new-one") == std::string::npos, "the file is encrypted");
+    auto back = Creds::Load();
+    Check(back.size() == 2 && back[0].password == L"new-one" && back[0].passwordDone && back[1].key == key && back[0].order == L"STORE-2", "read back");
+    auto arr = json::Value::MakeArray();
+    Cred extra; extra.id = back[0].id; extra.email = L"third@example.com"; extra.password = L"p";
+    arr.arr.push_back(Creds::ToJson(back[0])); arr.arr.push_back(Creds::ToJson(extra));
+    Check(Creds::MergeJson(arr) == 1 && Creds::Load().size() == 3 && Creds::Load()[2].id != back[0].id, "a backup's details merge by email");
+    Paths::Demo = true;
+}
+
 int wmain() {
     Paths::Init();
     wchar_t tmp[MAX_PATH]; GetTempPathW(MAX_PATH, tmp);
     auto dir = std::wstring(tmp) + Util::Format(L"cas-tests-%lu", GetCurrentProcessId());
     int code = 0;
     try {
-        Encoding(); Crypto(); Tokens(); Sync(); Names(); Limits(); Statistics(); Stopped(); Legacy(); LoginUrl(); LoginServer(); Switching(dir);
+        Encoding(); Crypto(); Tokens(); Sync(); Names(); Limits(); Statistics(); Stopped(); Legacy(); LoginUrl(); LoginServer(); Switching(dir); Logins(dir);
         std::wcout << L"All " << checks << L" checks passed\n";
     } catch (const std::exception& e) {
         std::cout << "FAILED after " << checks << " checks: " << e.what() << "\n";

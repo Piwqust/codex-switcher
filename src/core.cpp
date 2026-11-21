@@ -290,6 +290,15 @@ namespace Util {
         return ok;
     }
 
+    std::wstring PasteText(HWND owner) {
+        if (Test::On()) { auto t = Test::Take(L"test-clipboard.txt"); Test::Trace(Util::Format(L"paste|%d", (int)t.size())); return t; }
+        std::wstring s;
+        if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(owner)) return s;
+        if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) if (auto p = (const wchar_t*)GlobalLock(h)) { s = p; GlobalUnlock(h); }
+        CloseClipboard();
+        return s;
+    }
+
     bool Open(const std::wstring& what, const std::wstring& args) {
         if (Test::On()) { Test::Trace(L"open|" + what + (args.empty() ? L"" : L"|" + args)); return true; }
         return (INT_PTR)ShellExecuteW(nullptr, L"open", what.c_str(), args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL) > 32;

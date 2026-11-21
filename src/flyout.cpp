@@ -22,7 +22,7 @@ namespace {
             // Slides in 10 px and fades, over ~180 ms, as Windows 11 flyouts do.
             LARGE_INTEGER now, f; QueryPerformanceCounter(&now); QueryPerformanceFrequency(&f);
             float t = (float)((now.QuadPart - shownAt.QuadPart) * 1000.0 / f.QuadPart) / 180.f;
-            if (t >= 1) return 1;
+            if (t >= 1 || !Motion()) return 1;
             Animate();
             return 1 - (1 - t) * (1 - t) * (1 - t);
         }
@@ -40,16 +40,17 @@ namespace {
             for (auto& l : lines) {
                 Text(l.label, { x, ly, 22, 16 }, Font(11), T.text3);
                 Meter({ x + 24, ly + 5, 48, 5 }, l.left, stale);
-                Text(Util::Format(L"%d%%", (int)std::lround(l.left)), { x + 74, ly - 1, 38, 18 }, Font(12, DWRITE_FONT_WEIGHT_SEMI_BOLD), l.left <= 0 ? T.danger : stale ? T.text3 : T.text, Align::Right);
+                Text(Util::Format(L"%d%%", (int)std::lround(l.left)), { x + 74, ly - 1, 38, 18 }, Font(12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD), l.left <= 0 ? T.danger : stale ? T.text3 : T.text, Align::Right);
                 ly += 17;
             }
         }
 
-        void Row(UINT id, float y, std::function<void()> click) {
+        void Row(UINT id, float y, const std::wstring& name, std::function<void()> click, Role role = Role::Button, int state = -1) {
             RectF r{ 4, y, W - 8, RowH };
             float h = HotT(id), p = PressT(id);
-            Fill(r, Mix(Mix(D2D1::ColorF(0, 0, 0, 0), T.layerHover, h), T.layerPress, p), 4);
+            Fill(r, Veil(h, p), 4);
             Hit(id, r, click);
+            Describe(name, role, state);
             FocusRing(id, r, 4);
         }
 
@@ -71,36 +72,36 @@ namespace {
             }
             Text(AppTitle(), { 16, 10, titleW, 32 }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
             if (App::FetchingUsage()) Spinner(W - 100, 26, 7);
-            else IconButton(Id("fo-refresh"), { W - 116, 10, 32, 32 }, Glyphs::Refresh, [] { App::RefreshUsage(true); });
-            IconButton(Id("fo-open"), { W - 80, 10, 32, 32 }, Glyphs::Open, [this] { Hide(); App::ShowPicker(); });
-            IconButton(Id("fo-settings"), { W - 44, 10, 32, 32 }, Glyphs::Settings, [this] { Hide(); App::ShowSettings(); });
+            else IconButton(Id("fo-refresh"), { W - 116, 10, 32, 32 }, Glyphs::Refresh, Tr(L"Refresh limits (F5)", L"Обновить лимиты (F5)"), [] { App::RefreshUsage(true); });
+            IconButton(Id("fo-open"), { W - 80, 10, 32, 32 }, Glyphs::Open, Tr(L"Open the window with the list", L"Открыть окно со списком"), [this] { Hide(); App::ShowPicker(); });
+            IconButton(Id("fo-settings"), { W - 44, 10, 32, 32 }, Glyphs::Settings, Tr(L"Settings", L"Настройки"), [this] { Hide(); App::ShowSettings(); });
 
             float y = 48;
             for (auto& it : App::items) {
                 UINT id = Id("fo-row", it.index);
                 auto pid = it.id;
-                Row(id, y, [this, pid] { Hide(); App::Switch(pid, false); });
+                Row(id, y, it.Spoken(App::MostLeft() == &it && !it.switching), [this, pid] { Hide(); App::Switch(pid, false); }, Role::Row, it.active ? 1 : 0);
                 float limitsX = W - 44 - 116, tw = limitsX - 56 - 14;
                 Avatar(30, y + RowH / 2, 32, it.letters, it.color, it.active, T.dark ? Rgba(0x2C2C2C) : Rgba(0xF3F3F3));
                 if (it.switching || it.warming || it.deleting) Spinner(30, y + RowH / 2, 19);
                 Text(it.shownName, { 56, y + 9, tw, 20 }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
                 auto status = App::MostLeft() == &it && !it.switching ? std::wstring(Tr(L"Most limit left", L"Больше всего лимита")) : it.Status();
                 bool good = App::MostLeft() == &it && !it.switching;
-                Text(status, { 56, y + 30, tw, 18 }, Font(12), it.switching || it.warming || it.deleting ? T.text : it.SignedOut() ? T.danger : it.active || good ? T.success : T.text2);
+                Text(status, { 56, y + 30, tw, 18 }, Font(12.5f), it.switching || it.warming || it.deleting ? T.text : it.SignedOut() ? T.danger : it.active || good ? T.success : T.text2);
                 Limits(it, limitsX, y);
                 if (it.index <= 9) {
-                    RectF b{ W - 36, y + RowH / 2 - 10, 20, 20 };
+                    RectF b{ W - 38, y + RowH / 2 - 10, 20, 20 };   // centred under the settings button above
                     Fill(b, T.badge, 4);
-                    Text(std::to_wstring(it.index), b, Font(12, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text2, Align::Center);
+                    Text(std::to_wstring(it.index), b, Font(12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text2, Align::Center);
                 }
                 y += RowH + 2;
             }
             if (!App::items.empty()) { Line(0, y + 4, W, y + 4, T.menuStroke); y += 9; }
-            Row(Id("fo-add"), y, [this] { Hide(); App::AddAccount(); });
+            Row(Id("fo-add"), y, Tr(L"Add account", L"Добавить аккаунт"), [this] { Hide(); App::AddAccount(); });
             Glyph(Glyphs::Add, { 14, y, 32, RowH }, 14, T.text2);
             Text(Tr(L"Add account", L"Добавить аккаунт"), { 56, y, 220, RowH }, Font(14), T.text);
             y += RowH;
-            Row(Id("fo-exit"), y, [this] { Hide(); App::Exit(); });
+            Row(Id("fo-exit"), y, Tr(L"Quit switcher", L"Закрыть переключатель"), [this] { Hide(); App::Exit(); });
             Glyph(Glyphs::Power, { 14, y, 32, RowH }, 14, T.text2);
             Text(Tr(L"Quit switcher", L"Закрыть переключатель"), { 56, y, 240, RowH }, Font(14), T.text);
             y += RowH + 6;

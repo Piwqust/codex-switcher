@@ -20,7 +20,7 @@
 param(
     [string]$Exe = (Join-Path $PSScriptRoot '..\build\x64\CodexAccountSwitcher.exe'),
     [string]$Folder = (Join-Path $env:TEMP 'cas-demo'),
-    [ValidateSet('system', 'dark', 'light')][string]$Theme = 'system',
+    [ValidateSet('system', 'dark', 'light', 'contrast')][string]$Theme = 'system',   # contrast: Windows' high-contrast colours
     [ValidateSet('en', 'ru', 'settings')][string]$Language = 'en',   # settings: whatever the Language setting says
     [ValidateRange(1, 4)][double]$Scale = 0,               # 0: follow the monitor
     [switch]$Visible,       # on screen instead of off it
@@ -29,7 +29,9 @@ param(
     [switch]$CodexOpen,     # pretend the Codex app is open
     [switch]$KeepFlyout,    # the tray flyout stays open when it loses focus, for screenshots
     [switch]$Web,           # the account list in a browser too, at http://localhost:3291/?key=demo-key-not-secret
-    [switch]$Stress         # accounts named after long emails, a weekly-only plan, one signed out: for checking layouts
+    [switch]$Stress,        # accounts named after long emails, a weekly-only plan, one signed out: for checking layouts
+    [switch]$Empty,         # no accounts at all: what a first start looks like
+    [switch]$NoMotion       # as with "Animation effects" turned off in Windows
 )
 $ErrorActionPreference = 'Stop'
 $Exe = (Resolve-Path $Exe).Path
@@ -65,6 +67,7 @@ if ($Stress) {
         @{ Id = '5e6f7a8b'; Name = 'old.account';             Email = 'old.account@example.net';           Plan = 'free';    Used = 900; Five = 0;  Week = 0;  FiveIn = 18000; WeekIn = 500000; Out = $true }
     )
 }
+if ($Empty) { $accounts = @() }
 $vault = @{ version = 1; accounts = @() }
 $usage = @{}
 foreach ($a in $accounts) {
@@ -79,6 +82,22 @@ foreach ($a in $accounts) {
     if ($a -eq $accounts[0]) { Write-Json (Join-Path $Folder '.codex\auth.json') $auth }
 }
 Write-Json (Join-Path $Folder 'accounts.dat') $vault
+if (-not $Stress -and -not $Empty) {
+    # The account manager's details: two accounts from today's order, one secured last week and
+    # one whose paid month is almost over. The demo keeps them readable, as it does the accounts.
+    $day = 86400000
+    $logins = @(
+        @{ id = 'd0e1a2b3c4f5'; email = 'new.buyer.2@example.com'; password = 'q7Rm!dK2xWz9-Lp4vNa8'; oldPassword = 'Shop-pass-2'; key = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP'; newKey = 'ORSXG5DJNZTXEZLUORSXG5DJNZTXEZLU'; order = 'STORE-1763700000000-7f3c1a'; product = 'ChatGPT plus | Apple Pay | 1M | W24H'
+           received = $nowMs - 600000; warrantyUntil = $nowMs + $day - 600000; paidUntil = $nowMs + 30 * $day; passwordDone = $true; keyDone = $false; phoneDone = $false },
+        @{ id = 'a9b8c7d6e5f4'; email = 'new.buyer.1@example.com'; password = 'Shop-pass-1'; key = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ'; order = 'STORE-1763700000000-7f3c1a'; product = 'ChatGPT plus | Apple Pay | 1M | W24H'
+           received = $nowMs - 660000; warrantyUntil = $nowMs + $day - 660000; paidUntil = $nowMs + 30 * $day; passwordDone = $false; keyDone = $false; phoneDone = $false },
+        @{ id = 'f1e2d3c4b5a6'; email = 'alex.k@example.com'; password = 'm3V!pQ8z-Rt6yWs2kLn7'; key = 'MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U'; order = 'STORE-1762800000000-2b9d4e'; product = 'ChatGPT plus | Apple Pay | 1M | W24H'
+           received = $nowMs - 10 * $day; warrantyUntil = $nowMs - 9 * $day; paidUntil = $nowMs + 20 * $day; passwordDone = $true; keyDone = $true; phoneDone = $true; accountId = 'e5f6a7b8' },
+        @{ id = 'b6a5f4e3d2c1'; email = 'spare@example.com'; password = 'Zx4!nB7m-Qw2eRt5yU8i'; key = 'KRSXG5CTMVRXEZLUKRSXG5CTMVRXEZLU'; order = 'STORE-1761300000000-9c1e7f'; product = 'ChatGPT plus | Apple Pay | 1M | W24H'
+           received = $nowMs - 28 * $day; warrantyUntil = $nowMs - 27 * $day; paidUntil = $nowMs + 2 * $day - 3600000; passwordDone = $true; keyDone = $true; phoneDone = $true; accountId = '0a1b2c3d' }
+    )
+    Write-Json (Join-Path $Folder 'logins.dat') @{ version = 1; logins = $logins }
+}
 Write-Json (Join-Path $Folder 'usage.json') $usage
 Write-Json (Join-Path $Folder 'settings.json') @{ Autostart = $true; DemoCodexOpen = [bool]$CodexOpen; UsageMinutes = 0; WebOn = [bool]$Web; WebPort = 3291; WebKey = 'demo-key-not-secret'; Colors = @{ a1b2c3d4 = 0; e5f6a7b8 = 3; c9d0e1f2 = 4; '0a1b2c3d' = 6 } }
 
@@ -87,6 +106,7 @@ Set-Env CAS_DEMO $Folder
 Set-Env CAS_LANG $(if ($Language -ne 'settings') { $Language })
 Set-Env CAS_THEME $(if ($Theme -ne 'system') { $Theme })
 Set-Env CAS_SCALE $(if ($Scale) { "$Scale" })
+Set-Env CAS_MOTION $(if ($NoMotion) { 'off' })
 Set-Env CAS_FLYOUT_STAY $(if ($KeepFlyout) { '1' })
 Set-Env CAS_OFFSCREEN $(if (-not $Visible) { '1' })
 Set-Env CAS_SNAPSHOT (Join-Path $Folder 'snapshots')

@@ -80,6 +80,7 @@ namespace Util {
     std::wstring Clock(const SYSTEMTIME& t);
     std::wstring Names(const std::vector<std::wstring>& names);
     bool CopyText(HWND owner, const std::wstring& text);
+    std::wstring PasteText(HWND owner);            // the clipboard's text, "" when there is none
     // A link, a file or a folder in its usual program (the browser, Explorer).
     bool Open(const std::wstring& what, const std::wstring& args = L"");
 }

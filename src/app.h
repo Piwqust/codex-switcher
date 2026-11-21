@@ -17,6 +17,7 @@ struct Item {
     std::wstring shownName, shownEmail;   // what the windows show: masked when emails are hidden
     Usage usage;
     std::wstring Status() const;
+    std::wstring Spoken(bool best) const;   // the row as a screen reader says it: name, plan, status, what is left
     bool SignedOut() const { return usage.signedOut; }
     std::wstring PlanLabel() const;  // "Plus", "Pro", "Team", "API key"
 };
@@ -54,6 +55,7 @@ namespace App {
     void ShowPicker();
     void ClosePicker();
     void ShowSettings();
+    void ShowManager();             // the account manager: sign-in details, orders and their dates
     void Exit();
     void ThemeChanged();
 
@@ -84,20 +86,40 @@ namespace App {
     void OpenCodex();               // the app, signed in to whichever account is in use
     void RestartCodex();
     void AddAccount();              // a browser sign-in
+    void AddAccountByLink();        // the same, but the link goes to the clipboard instead of the browser
+    // The same for one of the manager's cards; the account it brings is linked to the card.
+    void SignInWith(const std::wstring& credId);
+    std::wstring SigningInFor();    // that card, while its sign-in waits in the browser
     void SignInAgain(const std::wstring& id);
     void CancelSignIn();
     bool SigningIn();
     std::wstring SignInLink();
+    // While a sign-in waits in the browser: the account it renews ("" for a new one), whether
+    // it is a new account's, and its page opened again.
+    std::wstring SigningInAccount();
+    bool SigningInNew();
+    void ReopenSignIn();
     void AddCurrentLogin();         // the sign-in Codex uses now
     void ImportFile(HWND owner);
     void ImportLegacy(HWND owner);
     void ExportAuth(const std::wstring& id, HWND owner);
     void BeginRename(const std::wstring& id);
     void CommitRename(const std::wstring& id, const std::wstring& name);
-    void Delete(std::wstring id, HWND owner);
+    // From the list (undo: true) nothing is asked: the account goes, and Undo in the window
+    // brings it back whole for a few seconds. The manager asks first, about more than the account.
+    void Delete(std::wstring id, HWND owner, bool undo = true);
+    void UndoDelete();
+    bool CanUndoDelete();
+    // Every way of adding an account, in one menu; whatever is on the clipboard or in the
+    // dropped files, taken for what it is: a sign-in, a backup, a shop's order.
+    void AddMenu(POINT screen, HWND owner);
+    void PasteAccounts(HWND owner);
+    void AddFiles(const std::vector<std::wstring>& files, HWND owner);
     void Warmup(const std::vector<std::wstring>& ids);
     void Move(const std::wstring& id, int delta);
     void ShowMenu(std::wstring id, POINT screen, HWND owner);
+    int PopupMenu(HMENU m, POINT screen, HWND owner);   // a native menu; the demo's checks answer it
+    std::wstring Masked(const std::wstring& text);     // jo•••@g•••.com
     // onClick runs when the balloon itself is clicked.
     void Notify(const std::wstring& title, const std::wstring& text, bool error = false, std::function<void()> onClick = nullptr);
     void OnUi(std::function<void()> f);   // run on the UI thread, from any thread
@@ -146,6 +168,17 @@ namespace Picker {
 namespace Flyout { void Toggle(); void Hide(); bool Visible(); void Restyle(); void Invalidate(); }
 namespace SettingsWin { void Show(); bool Visible(); void Restyle(); void Invalidate(); }
 namespace Details { void Show(const std::wstring& id); bool Visible(); void Restyle(); void Invalidate(); void Close(); }
+namespace Manager {
+    void Show(const std::wstring& focus = L"");   // focus: a card to open
+    bool Visible(); void Restyle(); void Invalidate(); HWND Handle();
+    void ShowAccount(const std::wstring& accountId);   // opened on that account's card
+    void ImportOrder(HWND owner);   // the shop's message from the clipboard
+    void ImportText(HWND owner, const std::wstring& text);   // the same from text already in hand
+    void Added(const std::wstring& credId, const std::wstring& accountId);
+    void SignInStopped();           // a card's sign-in was cancelled or failed: the queue of them ends
+    void AccountGone(const std::wstring& accountId);   // deleted from the list: a card with nothing saved on it goes too
+    void Remind();                  // warranties and paid months about to end
+}
 namespace Dialogs {
     bool Ask(HWND owner, const std::wstring& title, const std::wstring& text, const std::wstring& yes, bool danger = false, const std::wstring& no = Tr(L"Cancel", L"Отмена"));
     void Info(HWND owner, const std::wstring& title, const std::wstring& text);

@@ -2,6 +2,7 @@
 #include "codex.h"
 #include <cmath>
 #include <shellapi.h>
+#include <windowsx.h>
 
 using namespace Gfx;
 
@@ -11,7 +12,7 @@ namespace {
     const float W = 720, Pad = 20, RowH = 76, RowGap = 8, AddH = 52, MaxRows = 7;
     const float LimitsW = 262, MenuW = 40;   // the limits column and the ⋯ at the right of a row
 
-    enum class Banner { None, SigningIn, Recovery, Added, Problem, Unknown, Legacy };
+    enum class Banner { None, Recovery, Added, Problem, Unknown, Legacy };
 
     // One line of a row's limits: "5h  ▓▓▓▓▓░░  82%  ↻ 10:25".
     struct LimitLine { const wchar_t* label; double left; long long reset; bool started; };
@@ -20,18 +21,19 @@ namespace {
         std::wstring added; bool addedExisted = false;
         bool legacyDismissed = false;
         std::wstring renaming;     // id whose name is being edited in place
-        ULONGLONG copiedAt = 0;
+        // A row being dragged to another place: which one, where it was taken and where it would land.
+        int grabbed = 0, liftTo = 0; bool lifting = false; float grabY = 0, liftDy = 0; std::wstring grabId;
         float listTop = 0, listH = 0;   // the visible part of the list, for clipping and scrolling
 
         void Start() {
             sizeToContent = true;
             backdrop = 2;
             Create(AppTitle(), WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU, 0, W, 420);
+            AcceptFiles();
         }
 
         Banner Current() {
             auto& s = App::Now();
-            if (App::SigningIn()) return Banner::SigningIn;
             if (App::Recovering().running || App::Recovering().shown) return Banner::Recovery;
             if (!added.empty() && App::Find(added)) return Banner::Added;
             if (s.keyring || !s.vaultProblem.empty()) return Banner::Problem;
@@ -83,15 +85,6 @@ namespace {
             const wchar_t* glyph = Glyphs::Contact;
             auto& s = App::Now();
             switch (b) {
-            case Banner::SigningIn:
-                title = Tr(L"Sign in in the browser", L"Войдите в браузере");
-                text = GetTickCount64() - copiedAt < 2500 ? std::wstring(Tr(L"Link copied: paste it into a private window to use another browser session", L"Ссылка скопирована: вставьте её в приватное окно, чтобы войти другим сеансом"))
-                                                         : std::wstring(Tr(L"A ChatGPT sign-in page opened. Use the account you want to add", L"Открылась страница входа ChatGPT. Войдите в аккаунт, который нужно добавить"));
-                actions.push_back({ Tr(L"Copy link", L"Ссылка"), [this] { Util::CopyText(hwnd, App::SignInLink()); copiedAt = GetTickCount64(); Invalidate(); }, false });
-                actions.push_back({ Tr(L"Cancel", L"Отмена"), [] { App::CancelSignIn(); }, false });
-                Spinner(r.x + 24, r.y + 24, 9);
-                glyph = nullptr;
-                break;
             case Banner::Recovery: {
                 auto& rc = App::Recovering();
                 if (rc.running) {
@@ -148,8 +141,7 @@ namespace {
             }
             float tw = bx - (r.x + 44) - 4;
             Text(title, { r.x + 44, r.y + 12, tw, 20 }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
-            Text(text, { r.x + 44, r.y + 33, tw, 18 }, Font(12), T.text2);
-            if (b == Banner::SigningIn && GetTickCount64() - copiedAt < 2600) Animate();
+            Text(text, { r.x + 44, r.y + 33, tw, 18 }, Font(12.5f), T.text2);
         }
 
         // ------------------------------------------------------------ rows
@@ -158,20 +150,66 @@ namespace {
         void Limit(float x, float y, const LimitLine& l, bool stale) {
             long long now = Core::NowMs() / 1000;
             bool out = l.left >= 0 && l.left <= 0 && l.reset > now;
-            Text(l.label, { x, y, 40, 16 }, Font(11.5f), T.text3);
+            Text(l.label, { x, y, 40, 16 }, Font(11), T.text3);
             Meter({ x + 42, y + 5, 84, 6 }, l.left, stale);
             auto pc = out ? T.danger : stale ? T.text3 : T.text;
-            Text(l.left < 0 ? L"—" : Util::Format(L"%d%%", (int)std::lround(l.left)), { x + 128, y - 1, 44, 18 }, Font(13, DWRITE_FONT_WEIGHT_SEMI_BOLD), pc, Align::Right);
+            Text(l.left < 0 ? L"—" : Util::Format(L"%d%%", (int)std::lround(l.left)), { x + 128, y - 1, 44, 18 }, Font(12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD), pc, Align::Right);
             std::wstring when; auto wc = T.text3;
             if (out) { when = Tr(L"back ", L"снова ") + Core::ResetTime(l.reset); wc = T.danger; }
             else if (!l.started) when = Tr(L"not started", L"не начато");
             else if (l.reset > now) when = L"↻ " + Core::ResetTime(l.reset);
-            Text(when, { x + 180, y, LimitsW - 180, 16 }, Font(11.5f), wc);
+            Text(when, { x + 180, y, LimitsW - 180, 16 }, Font(11), wc);
         }
 
-        void Row(Item& it, RectF r, bool best) {
+        // A sign-in waiting in the browser, shown where it belongs: its window again, the link
+        // for finishing it in another browser, and a way out.
+        void Waiting(float x, float cy, int n) {
+            auto again = Tr(L"Open again", L"Открыть снова"), cancel = Tr(L"Cancel", L"Отмена");
+            float aw = Measure(again, Font(14)).width + 26, cw = Measure(cancel, Font(14)).width + 26;
+            Button(Id("signin-open", n), { x, cy - 16, aw, 32 }, again, false, [] { App::ReopenSignIn(); });
+            IconButton(Id("signin-link", n), { x + aw + 6, cy - 16, 32, 32 }, Glyphs::Copy,
+                       Tr(L"Copy the sign-in link, to finish it in another browser", L"Скопировать ссылку входа, чтобы закончить его в другом браузере"),
+                       [this] { if (Util::CopyText(hwnd, App::SignInLink())) Toast(Tr(L"Link copied: paste it into any browser", L"Ссылка скопирована: вставьте её в любой браузер")); });
+            Button(Id("signin-cancel", n), { x + aw + 44, cy - 16, cw, 32 }, cancel, false, [] { App::CancelSignIn(); });
+        }
+
+        // The account being added: it has no name yet, only a sign-in waiting in the browser.
+        void NewRow(RectF r) {
+            Fill(r, T.layer, 8);
+            Stroke(r, T.layerStroke, 8);
+            float cx = r.x + 66, cy = r.y + r.h / 2;
+            Circle(cx, cy, 20, T.badge);
+            Glyph(Glyphs::Contact, { cx - 20, cy - 20, 40, 40 }, 16, T.text2);
+            Spinner(cx, cy, 23);
+            float tx = TextX(r), limitsX = r.R() - MenuW - LimitsW;
+            Text(Tr(L"New account", L"Новый аккаунт"), { tx, r.y + 14, limitsX - tx - 16, 22 }, Font(16, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
+            Text(Tr(L"Waiting for the sign-in in the browser", L"Ждёт входа в браузере"), { tx, r.y + 40, limitsX - tx - 16, 18 }, Font(12.5f), T.text2);
+            Waiting(limitsX, cy, 0);
+        }
+
+        static UINT ShiftId(const Item& it) { return Id("shift", (int)std::hash<std::wstring>()(it.id)); }
+        // How far a row steps aside for the one being dragged past it.
+        float Shift(int index) const {
+            if (!lifting) return 0;
+            if (grabbed < index && index <= liftTo) return -(RowH + RowGap);
+            if (liftTo <= index && index < grabbed) return RowH + RowGap;
+            return 0;
+        }
+
+        void Row(Item& it, RectF r, bool best, bool lifted = false) {
             UINT id = Id("row", it.index);
+            bool waiting = App::SigningInAccount() == it.id;
             bool visible = r.B() > listTop && r.y < listTop + listH;
+            // Handlers look the account up again by id: the list may be rebuilt before a click lands.
+            auto pid = it.id;
+            // A row scrolled out of view still takes keyboard focus, which scrolls it back in.
+            RectF hit = r;
+            if (hit.y < listTop) { hit.h -= listTop - hit.y; hit.y = listTop; }
+            if (hit.B() > listTop + listH) hit.h = listTop + listH - hit.y;
+            if (!visible) hit.h = 0;
+            Hit(id, hit, [pid] { App::Switch(pid, true); }, [this, pid] { POINT pt; GetCursorPos(&pt); Menu(pid, pt); });
+            Bounds(r);
+            Describe(it.Spoken(best), Role::Row, it.active ? 1 : 0);
             if (!visible) return;
             bool over = Over(r) && my >= listTop && my < listTop + listH;
             float h = A(id ^ 0x51, over ? 1.f : 0.f), p = PressT(id);
@@ -179,12 +217,7 @@ namespace {
             Fill(r, Mix(Mix(T.layer, T.layerHover, h), T.layerPress, p), 8);
             auto strokeHover = T.dark ? Rgba(0xFFFFFF, .16f) : Rgba(0x000000, .14f);
             Stroke(r, Mix(Mix(T.layerStroke, strokeHover, h), T.success, act * .55f), 8, 1 + act * .5f);
-            // Handlers look the account up again by id: the list may be rebuilt before a click lands.
-            auto pid = it.id;
-            RectF hit = r;
-            if (hit.y < listTop) { hit.h -= listTop - hit.y; hit.y = listTop; }
-            if (hit.B() > listTop + listH) hit.h = listTop + listH - hit.y;
-            Hit(id, hit, [pid] { App::Switch(pid, true); }, [this, pid] { POINT pt; GetCursorPos(&pt); Menu(pid, pt); });
+            if (lifted) { Fill(r, Veil(1), 8); Stroke(r, T.text2, 8, 1.5f); }   // in the hand: raised above the rest
             FocusRing(id, r, 8);
 
             // The digit that switches to it, and its mark.
@@ -194,34 +227,41 @@ namespace {
                 Text(std::to_wstring(it.index), k, Font(12.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text2, Align::Center);
             }
             Avatar(r.x + 66, r.y + r.h / 2, 40, it.letters, it.color, it.active, T.dark ? Rgba(0x2B2B2B) : Rgba(0xFBFBFB));
-            if (it.switching || it.deleting || it.warming) Spinner(r.x + 66, r.y + r.h / 2, 23);
+            if (it.switching || it.deleting || it.warming || waiting) Spinner(r.x + 66, r.y + r.h / 2, 23);
 
             // Name and plan; then whether Codex uses it, and its email.
             float tx = TextX(r), limitsX = r.R() - MenuW - LimitsW, tw = limitsX - tx - 16;
             auto plan = it.PlanLabel();
-            float pw = plan.empty() ? 0 : Measure(plan, Font(10.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14;
+            float pw = plan.empty() ? 0 : Measure(plan, Font(11, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14;
             if (Editing() && renaming == it.id) {
                 // The text box sits here; this is its field, drawn in the Windows 11 style.
                 RectF f = NameField(r);
                 Fill(f.Inset(-1), T.menu, 4);
                 Stroke(f.Inset(-1), T.controlStroke, 4);
-                Fill({ f.x - 1, f.B() - 1, f.w + 2, 2 }, T.text, 1);
+                FieldLine(f.Inset(-1), T.text, 4);
             } else {
-                float nw = std::min(Measure(it.shownName, Font(15, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 2, tw - (pw ? pw + 8 : 0));
-                Text(it.shownName, { tx, r.y + 14, nw, 22 }, Font(15, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
+                float nw = std::min(Measure(it.shownName, Font(16, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 2, tw - (pw ? pw + 8 : 0));
+                Text(it.shownName, { tx, r.y + 14, nw, 22 }, Font(16, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
                 if (pw) Pill({ tx + nw + 8, r.y + 16, pw, 18 }, plan, plan == L"Free" ? T.badge : T.accentTint, T.text2);
             }
             std::wstring status = it.Status();
             auto sc = it.switching || it.deleting || it.warming ? T.text : it.SignedOut() ? T.danger : it.active ? T.success : T.text2;
             if (best && !it.switching && !it.deleting && !it.warming) { status = Tr(L"Most limit left", L"Больше всего лимита"); sc = T.success; }
-            float sw = Measure(status, Font(12.5f)).width;
-            Text(status, { tx, r.y + 40, tw, 18 }, Font(12.5f, it.active || best ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL), sc);
+            if (waiting) { status = Tr(L"Waiting for the sign-in in the browser", L"Ждёт входа в браузере"); sc = T.text; }
+            // Measured in the weight it is drawn in, so the email keeps its distance from a bold status.
+            auto sf = Font(12.5f, it.active || best ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL);
+            float sw = Measure(status, sf).width;
+            Text(status, { tx, r.y + 40, tw, 18 }, sf, sc);
             auto email = it.shownEmail.empty() || _wcsicmp(it.shownEmail.c_str(), it.shownName.c_str()) == 0 ? std::wstring() : it.shownEmail;
+            // A name that is the address's own first half isn't said twice: only "@example.com" follows.
+            auto at = email.find(L'@');
+            if (at != std::wstring::npos && at > 0 && _wcsicmp(email.substr(0, at).c_str(), it.shownName.c_str()) == 0) email = email.substr(at);
             if (!email.empty() && sw + 16 < tw) Text(L"·  " + email, { tx + sw + 7, r.y + 40, tw - sw - 7, 18 }, Font(12.5f), T.text3);
 
             // What is left, on the right.
             auto& u = it.usage;
-            if (it.apiKey) Text(Tr(L"API key: no plan limits", L"API-ключ: без лимитов подписки"), { limitsX, r.y, LimitsW, r.h }, Font(12), T.text3);
+            if (waiting) Waiting(limitsX, r.y + r.h / 2, it.index);
+            else if (it.apiKey) Text(Tr(L"API key: no plan limits", L"API-ключ: без лимитов подписки"), { limitsX, r.y, LimitsW, r.h }, Font(12.5f), T.text3);
             else if (u.known) {
                 long long now = Core::NowMs() / 1000;
                 std::vector<LimitLine> lines;
@@ -233,13 +273,13 @@ namespace {
                 float ly = lines.size() > 1 ? r.y + 15 : r.y + r.h / 2 - 8;
                 for (auto& l : lines) { Limit(limitsX, ly, l, stale); ly += 24; }
                 if (!u.problem.empty() && !u.signedOut)
-                    Text(Tr(L"not updated ", L"не обновлено ") + Core::Age(u.at), { limitsX + 42, r.y + r.h - 18, LimitsW - 42, 14 }, Font(10.5f), T.text3);
+                    Text(Tr(L"not updated ", L"не обновлено ") + Core::Age(u.at), { limitsX + 42, r.y + r.h - 18, LimitsW - 42, 14 }, Font(11), T.text3);
             } else if (u.signedOut) {
                 float bw = Measure(Tr(L"Sign in again", L"Войти заново"), Font(14)).width + 32;
                 Button(Id("signin", it.index), { limitsX, r.y + r.h / 2 - 16, bw, 32 }, Tr(L"Sign in again", L"Войти заново"), false, [pid] { App::SignInAgain(pid); });
             } else {
                 auto msg = it.fetching ? std::wstring(Tr(L"Getting limits…", L"Получаю лимиты…")) : u.problem;
-                Text(msg, { limitsX, r.y + 8, LimitsW, r.h - 16 }, Font(12), T.text3, Align::Left, true, true);
+                Text(msg, { limitsX, r.y + 8, LimitsW, r.h - 16 }, Font(12.5f), T.text3, Align::Left, true, true);
             }
 
             // The menu, on hover or keyboard focus.
@@ -247,10 +287,13 @@ namespace {
             if (showMore > 0.01f) {
                 PushOpacity(showMore);
                 UINT mid = Id("more", it.index);
-                RectF m{ r.R() - 38, r.y + r.h / 2 - 15, 30, 30 };
-                Fill(m, Mix(D2D1::ColorF(0, 0, 0, 0), T.layerHover, HotT(mid)), 4);
-                Glyph(Glyphs::More, m, 14, T.text2);
+                RectF m{ r.R() - 40, r.y + r.h / 2 - 16, 32, 32 };
+                float mh = HotT(mid);
+                Fill(m, Veil(mh, PressT(mid)), 4);
+                Glyph(Glyphs::More, m, 14, Mix(T.text2, T.text, mh));
                 Hit(mid, m, [this, pid, m] { Menu(pid, Screen(m.x, m.B())); }, nullptr, false);
+                Describe(Util::Format(Tr(L"More for %s", L"Ещё для %s"), it.shownName.c_str()));
+                Tip(Tr(L"Rename, details, delete and more", L"Имя, подробности, удаление и другое"));
                 PopOpacity();
             }
         }
@@ -265,17 +308,47 @@ namespace {
             Text(Tr(L"Add account", L"Добавить аккаунт"), { r.x + 98, r.y, 200, r.h }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text);
             float aw = Measure(Tr(L"Add account", L"Добавить аккаунт"), Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width;
             Text(Tr(L"Sign in with ChatGPT in the browser", L"Вход через ChatGPT в браузере"), { r.x + 98 + aw + 12, r.y, 300, r.h }, Font(12.5f), T.text3);
-            Text(L"Ctrl+N", { r.R() - 120, r.y, 104, r.h }, Font(12.5f), T.text3, Align::Right);
+            Text(L"Ctrl+N", { r.R() - 160, r.y, 104, r.h }, Font(12.5f), T.text3, Align::Right);
             Hit(id, r, [] { App::AddAccount(); });
+            Describe(Tr(L"Add account", L"Добавить аккаунт"));
             FocusRing(id, r, 8);
+            RectF more{ r.R() - 40, r.y + r.h / 2 - 16, 32, 32 };   // in one column with the rows' ⋯
+            IconButton(Id("addmore"), more, Glyphs::ChevronDown, OtherWays(), [this, more] { App::AddMenu(Screen(more.x, more.B() + 2), hwnd); RefreshHover(); });
+        }
+
+        static const wchar_t* OtherWays() {
+            return Tr(L"Other ways to add: a shop's order, the sign-in Codex uses now, a file, a backup",
+                      L"Другие способы добавить: заказ из магазина, вход, который сейчас у Codex, файл, резервная копия");
+        }
+
+        // Nothing on the list yet: what the list is for and the one thing to do.
+        float Empty(float y) {
+            RectF e{ Pad, y, W - 2 * Pad, 196 };
+            auto s = T.controlStrong; s.a *= .5f;
+            DashedStroke(e, s, 8);
+            Glyph(Glyphs::Contact, { e.x, e.y + 22, e.w, 28 }, 22, T.text3);
+            Text(Tr(L"No accounts yet", L"Аккаунтов пока нет"), { e.x, e.y + 56, e.w, 24 }, Font(16, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text, Align::Center);
+            Text(Tr(L"Add the first one: a ChatGPT sign-in page opens in the browser. Add the others the same way, and one click here switches Codex between them",
+                    L"Добавьте первый: в браузере откроется вход ChatGPT. Остальные добавляются так же, и Codex переключается между ними одним щелчком"),
+                 { e.x + 60, e.y + 84, e.w - 120, 40 }, Font(12.5f), T.text2, Align::Center, false, true);
+            auto label = Tr(L"Add account", L"Добавить аккаунт");
+            auto other = Tr(L"Other ways…", L"Другие способы…");
+            float bw = Measure(label, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 40, ow = Measure(other, Font(14)).width + 32;
+            float bx = e.x + (e.w - bw - 8 - ow) / 2;
+            Button(Id("addrow"), { bx, e.y + 138, bw, 32 }, label, true, [] { App::AddAccount(); });
+            RectF more{ bx + bw + 8, e.y + 138, ow, 32 };
+            Button(Id("addmore"), more, other, false, [this, more] { App::AddMenu(Screen(more.x, more.B() + 2), hwnd); RefreshHover(); });
+            Tip(OtherWays());
+            return e.h;
         }
 
         void Build() override {
-            Text(Tr(L"Codex accounts", L"Аккаунты Codex"), { Pad, 12, W - 2 * Pad - 90, 30 }, Font(20, DWRITE_FONT_WEIGHT_SEMI_BOLD, true), T.text);
-            Text(CodexState(), { Pad, 41, W - 2 * Pad - 90, 18 }, Font(12.5f), App::Now().appRunning ? T.text2 : T.text3);
+            Text(Tr(L"Codex accounts", L"Аккаунты Codex"), { Pad, 12, W - 2 * Pad - 126, 30 }, Font(20, DWRITE_FONT_WEIGHT_SEMI_BOLD, true), T.text);
+            Text(CodexState(), { Pad, 41, W - 2 * Pad - 126, 18 }, Font(12.5f), App::Now().appRunning ? T.text2 : T.text3);
+            IconButton(Id("manage"), { W - Pad - 104, 14, 32, 32 }, Glyphs::People, Tr(L"Account manager (Ctrl+M)", L"Управление аккаунтами (Ctrl+M)"), [] { App::ShowManager(); });
             if (App::FetchingUsage()) Spinner(W - Pad - 52, 30, 8);
-            else IconButton(Id("refresh"), { W - Pad - 68, 14, 32, 32 }, Glyphs::Refresh, [] { App::RefreshUsage(true); });
-            IconButton(Id("settings"), { W - Pad - 32, 14, 32, 32 }, Glyphs::Settings, [] { App::ShowSettings(); });
+            else IconButton(Id("refresh"), { W - Pad - 68, 14, 32, 32 }, Glyphs::Refresh, Tr(L"Refresh limits (F5)", L"Обновить лимиты (F5)"), [] { App::RefreshUsage(true); });
+            IconButton(Id("settings"), { W - Pad - 32, 14, 32, 32 }, Glyphs::Settings, Tr(L"Settings (Ctrl+,)", L"Настройки (Ctrl+,)"), [] { App::ShowSettings(); });
 
             float y = 72;
             auto b = Current();
@@ -284,35 +357,52 @@ namespace {
             // The list scrolls once there are more accounts than fit comfortably.
             int n = (int)App::items.size();
             float full = n * (RowH + RowGap);
+            if (n) {
+                // What the two figures of a row are, said once above them.
+                float lx = W - Pad - MenuW - LimitsW;
+                Text(Tr(L"left", L"осталось"), { lx + 92, y - 6, 80, 14 }, Font(11), T.text3, Align::Right);
+                Text(Tr(L"resets", L"сброс"), { lx + 180, y - 6, LimitsW - 180, 14 }, Font(11), T.text3);
+                y += 12;
+            }
             listTop = y;
             listH = std::min(full, MaxRows * (RowH + RowGap));
             scrollMax = std::max(0.f, full - listH);
             if (scrollY > scrollMax) scrollY = scrollMax;
-            // Keyboard focus on a row out of view brings it into view.
-            if (keyboardCues) if (auto f = ItemByRow(focus)) {
-                float top = (f->index - 1) * (RowH + RowGap);
-                if (top < scrollY) scrollY = top;
-                if (top + RowH > scrollY + listH) scrollY = top + RowH - listH + RowGap;
-            }
             auto best = App::MostLeft();
-            if (n) {
+            bool adding = App::SigningInNew();
+            if (grabbed && !App::Find(grabId)) { grabbed = 0; lifting = false; }
+            if (n || adding) {
+                BeginScroll({ 0, listTop, W, listH });
                 RT()->PushAxisAlignedClip(D2D1::RectF(0, listTop - 4, W, listTop + listH), D2D1_ANTIALIAS_MODE_ALIASED);
-                for (auto& it : App::items) Row(it, RowRect(it.index), &it == best);
-                RT()->PopAxisAlignedClip();
-                if (scrollMax > 0) {
-                    float th = std::max(30.f, listH * listH / full), ty = listTop + (listH - th) * scrollY / scrollMax;
-                    Fill({ W - 8, ty + 2, 3, th - 4 }, T.text3, 1.5f);
+                // The rows step aside for the one being dragged, which is drawn last, on top.
+                Item* inHand = nullptr;
+                for (auto& it : App::items) {
+                    if (lifting && it.index == grabbed) { inHand = &it; continue; }
+                    auto rr = RowRect(it.index);
+                    rr.y += A(ShiftId(it), Shift(it.index), 140);
+                    Row(it, rr, &it == best);
                 }
+                if (inHand) {
+                    auto rr = RowRect(inHand->index);
+                    rr.y = std::max(listTop - 6, std::min(listTop + listH - RowH - RowGap + 6, rr.y + liftDy));
+                    Row(*inHand, rr, inHand == best, true);
+                }
+                RT()->PopAxisAlignedClip();
+                EndScroll(full);
+                y = listTop + listH;
+                if (adding) { NewRow({ Pad, y, W - 2 * Pad, RowH }); y += RowH + RowGap; }
+                AddRow({ Pad, y, W - 2 * Pad, AddH });
+                y += AddH + 20;
+            } else {
+                scrollMax = 0;
+                y += Empty(y) + 20;
             }
-            y = listTop + listH;
-            AddRow({ Pad, y, W - 2 * Pad, AddH });
-            y += AddH + 20;
 
             // As in Claude Profile Switcher: starting with Windows on the left, the keys on the right.
             UINT at = Id("autostart");
             auto flip = [this] { App::SetAutostart(!App::Autostart()); Invalidate(); };
-            Toggle(at, Pad, y, App::Autostart(), flip);
             auto label = Tr(L"Start with Windows", L"Запускать вместе с Windows");
+            Toggle(at, Pad, y, App::Autostart(), flip, true, label);
             float lw = Measure(label, Font(14)).width;
             Text(label, { Pad + 52, y - 4, lw + 4, 28 }, Font(14), T.text);
             Hit(at, { Pad + 48, y - 6, lw + 12, 32 }, flip, nullptr, false);
@@ -320,7 +410,7 @@ namespace {
             auto hint = opens ? Tr(L"A digit opens · F2 renames · F5 refreshes", L"Цифра — открыть · F2 — имя · F5 — обновить")
                               : Tr(L"A digit switches · F2 renames · F5 refreshes", L"Цифра — переключить · F2 — имя · F5 — обновить");
             float hx = Pad + 52 + lw + 24;
-            Text(hint, { hx, y - 4, W - Pad - hx, 28 }, Font(12.5f), T.text3, Align::Right);
+            if (n) Text(hint, { hx, y - 4, W - Pad - hx, 28 }, Font(12.5f), T.text3, Align::Right);
             contentHeight = y + 20 + 20;
         }
 
@@ -331,7 +421,10 @@ namespace {
             if (vk >= '1' && vk <= '9' && !ctrl && !alt) { int d = vk - '0'; for (auto& i : App::items) if (i.index == d) { App::Switch(i.id, true); break; } return true; }
             if (vk >= VK_NUMPAD1 && vk <= VK_NUMPAD9 && !ctrl) { int d = vk - VK_NUMPAD0; for (auto& i : App::items) if (i.index == d) { App::Switch(i.id, true); break; } return true; }
             if (ctrl && vk == 'N') { App::AddAccount(); return true; }
+            if (ctrl && vk == 'V') { App::PasteAccounts(hwnd); return true; }      // whatever account the clipboard holds
+            if (ctrl && vk == 'Z' && App::CanUndoDelete()) { App::UndoDelete(); return true; }
             if (ctrl && vk == VK_OEM_COMMA) { App::ShowSettings(); return true; }
+            if (ctrl && vk == 'M') { App::ShowManager(); return true; }
             auto focused = ItemByRow(focus);
             if (vk == VK_F5) { if (focused && keyboardCues) App::RefreshUsage(true, focused->id); else App::RefreshUsage(true); return true; }
             if (vk == VK_ESCAPE) { if (App::SigningIn()) App::CancelSignIn(); else OnClose(); return true; }
@@ -343,18 +436,56 @@ namespace {
             if (ctrl && (vk == VK_UP || vk == VK_DOWN || vk == VK_LEFT || vk == VK_RIGHT)) {
                 int delta = vk == VK_UP || vk == VK_LEFT ? -1 : 1, to = focused->index + delta;
                 App::Move(id, delta);
-                if (to >= 1 && to <= (int)App::items.size()) focus = Id("row", to);
+                if (to >= 1 && to <= (int)App::items.size()) FocusOn(Id("row", to));
                 return true;
             }
             if (vk == VK_APPS || (vk == VK_F10 && (GetKeyState(VK_SHIFT) & 0x8000))) {
                 auto r = RowRect(focused->index);
-                Menu(id, Screen(r.R() - 38, r.y + r.h / 2 + 15));
+                Menu(id, Screen(r.R() - 40, r.y + r.h / 2 + 16));
                 return true;
             }
             return false;
         }
 
         void OnClose() override { App::ClosePicker(); }
+        void OnDrop(const std::vector<std::wstring>& files) override { App::AddFiles(files, hwnd); }
+
+        // Dragging a row to another place. The press is remembered when it lands on a row
+        // itself (not on a button in it); it becomes a drag once the pointer has moved.
+        void OnMouseDown() override {
+            grabbed = 0; lifting = false;
+            if (Editing() || App::items.size() < 2) return;
+            const Region* top = nullptr;
+            for (auto& g : Regions()) if (g.r.Has(mx, my)) top = &g;
+            if (!top) return;
+            for (auto& it : App::items) if (top->id == Id("row", it.index)) { grabbed = it.index; grabId = it.id; grabY = my; liftTo = it.index; liftDy = 0; }
+        }
+
+        LRESULT Extra(UINT m, WPARAM w, LPARAM l, bool& handled) override {
+            if (m == WM_MOUSEMOVE && grabbed) {
+                if (!(w & MK_LBUTTON)) { grabbed = 0; lifting = false; return 0; }
+                float y = GET_Y_LPARAM(l) / scale;
+                if (!lifting && std::fabs(y - grabY) < 6) return 0;
+                lifting = true; liftDy = y - grabY;
+                const float step = RowH + RowGap;
+                liftTo = std::max(1, std::min((int)App::items.size(), (int)std::floor(((grabbed - 1) * step + liftDy + RowH / 2) / step) + 1));
+                handled = true; Invalidate();
+                return 0;
+            }
+            if (m == WM_LBUTTONUP && grabbed) {
+                int from = grabbed, to = liftTo; bool was = lifting; auto id = grabId;
+                grabbed = 0; lifting = false;
+                if (!was) return 0;                // it never moved: an ordinary click
+                handled = true;
+                ReleaseCapture(); pressed = 0;
+                for (auto& it : App::items) Snap(ShiftId(it), 0);
+                if (to != from && App::Find(id)) App::Move(id, to - from);
+                RefreshHover();
+                return 0;
+            }
+            if (m == WM_CAPTURECHANGED && lifting && (HWND)l != hwnd) { grabbed = 0; lifting = false; Invalidate(); }
+            return 0;
+        }
 
         void FocusLikely() {
             Item* best = nullptr;

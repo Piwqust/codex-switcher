@@ -2,7 +2,7 @@
 #ifndef CAS_VERSION_H
 #define CAS_VERSION_H
 
-#define CAS_VERSION_NUM 1,0,0,0
-#define CAS_VERSION_TEXT "1.0.0"
+#define CAS_VERSION_NUM 1,1,0,0
+#define CAS_VERSION_TEXT "1.1.0"
 
 #endif

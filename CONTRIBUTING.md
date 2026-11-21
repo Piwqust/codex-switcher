@@ -46,15 +46,17 @@ Interface text sits in the code as `Tr(L"English", L"Русский")`: add both
 .\tools\capture.ps1 -Window picker -Out picker.png
 .\tools\capture.ps1 -Window details -OpenDetails -Out details.png
 .\tools\capture.ps1 -Window flyout -OpenFlyout -Out tray.png
-.\tools\capture.ps1 -Window settings -ClickSettings -Scale 1.25 -Scroll 10 -Out settings.png   # -Scale: your display scale
+.\tools\capture.ps1 -Window settings -ClickSettings -Control nav:1 -Out settings.png   # -Control: click that control first, here the Switching page
+.\tools\demo.ps1 -Empty                               # no accounts: what a first start looks like
+.\tools\demo.ps1 -Theme contrast -NoMotion            # Windows' high-contrast colours, and "Animation effects" off
 .\tools\demo.ps1 -Visible -Language ru -Theme light   # on screen, to click around
 ```
 
-With `-Web` the demo's browser list is at <http://localhost:3291/?key=demo-key-not-secret>. `tools\make-images.ps1 -Scale 1.25` redraws every picture in `docs/images` in both languages.
+With `-Web` the demo's browser list is at <http://localhost:3291/?key=demo-key-not-secret>. `tools\make-images.ps1` redraws every picture in `docs/images` in both languages.
 
 ## Checking every button
 
-`tools\uitest.ps1` clicks through the whole interface in the demo, off screen: every row, button, toggle, menu item and key of the account list, the tray list and menu, Settings, account details and the dialogs, including adding an account, renaming, deleting, backups both ways and the browser list. Each step is checked against what the demo did (its trace in `%TEMP%\cas-uitest\trace.log`, its settings and files), and the script ends with a count of passed and failed checks. Menus and file dialogs never show: the demo takes the item or file the script names, and signing in is simulated.
+`tools\uitest.ps1` clicks through the whole interface in the demo, off screen: every row, button, toggle, menu item and key of the account list, the tray list and menu, Settings, account details, the account manager and the dialogs, including taking in a shop's order, 2FA codes, typing with Ctrl+Alt+V, adding an account, renaming, deleting, backups both ways and the browser list. Each step is checked against what the demo did (its trace in `%TEMP%\cas-uitest\trace.log`, its settings and files), and the script ends with a count of passed and failed checks. Menus and file dialogs never show: the demo takes the item or file the script names, and signing in is simulated.
 
 ```powershell
 .\tools\uitest.ps1                     # about two minutes

@@ -10,6 +10,7 @@
 #include <dwrite_3.h>
 #include <wincodec.h>
 #include <unordered_map>
+#include <memory>
 
 namespace Gfx {
     extern ID2D1Factory* D2D;
@@ -20,18 +21,29 @@ namespace Gfx {
     inline D2D1_COLOR_F Rgba(UINT rgb, float a = 1) { return D2D1::ColorF(((rgb >> 16) & 255) / 255.f, ((rgb >> 8) & 255) / 255.f, (rgb & 255) / 255.f, a); }
     inline D2D1_COLOR_F FromColorref(COLORREF c, float a = 1) { return D2D1::ColorF(GetRValue(c) / 255.f, GetGValue(c) / 255.f, GetBValue(c) / 255.f, a); }
     D2D1_COLOR_F Mix(D2D1_COLOR_F a, D2D1_COLOR_F b, float t);
+    // The tint laid over whatever is underneath while the pointer is on a control (hover 0…1)
+    // and while it is pressed: lighter on dark, darker on light, as Windows 11 does it.
+    D2D1_COLOR_F Veil(float hover, float press = 0);
 
     // Windows 11 palettes: translucent layers over Mica. The accent is black on light and white
     // on dark, like Codex and ChatGPT themselves; colour is kept for state (in use, limits).
+    //
+    // The type scale: 11 (pills, axis labels), 12.5 (secondary lines), 14 (body), 16 (names),
+    // 20 (window titles), 28 (page titles). Nothing in between.
     struct Theme {
         bool dark;
         D2D1_COLOR_F bg, text, text2, text3, layer, layerHover, layerPress, layerStroke, card, cardStroke,
             control, controlHover, controlPress, controlStroke, controlStrong, menu, menuStroke,
             accent, accentHover, accentPress, accentText, onAccent, accentTint, success, warning, danger, focus, badge;
+        bool contrast = false;             // Windows' high contrast: the system's colours, solid borders, no backdrop
     };
     extern Theme T;
     bool SystemDark();
     void ApplyTheme();                     // re-reads the system setting
+    bool HighContrast();
+    // Windows' "Animation effects" setting. Off: states change at once and nothing slides.
+    bool Motion();
+    void ReadSystem();                     // re-reads it, after WM_SETTINGCHANGE
     bool BackdropSupported();
     // CAS_OFFSCREEN in the demo or with CAS_ROOT: windows open far off screen, without focus or a taskbar
     // button, for screenshots taken while someone works at the same PC.
@@ -60,11 +72,22 @@ struct RectF {
 
 enum class Align { Left, Center, Right };
 
+// What a control is to a screen reader.
+enum class Role { Button, Toggle, Check, Row, Tab, Radio };
+
 struct Region {
     UINT id; RectF r;
     std::function<void()> click, rclick;
     bool focusable; bool hand;
+    RectF bounds;                          // the whole control; r may be clipped by a scrolled list
+    bool scrolls = false;                  // inside the scrolled part of the window
+    std::wstring name, tip;                // what a screen reader says; what shows on hover
+    Role role = Role::Button;
+    int state = -1;                        // on/off or chosen, for toggles, tabs and rows; -1 = none
 };
+
+// A piece of text as drawn, so a screen reader can read what isn't a control.
+struct TextRun { std::wstring text; RectF r; };
 
 inline UINT Id(const char* s, int i = 0) {
     UINT h = 2166136261u;
@@ -108,9 +131,30 @@ public:
     void Glyph(const wchar_t* g, RectF r, float size, D2D1_COLOR_F c);
     D2D1_SIZE_F Measure(const std::wstring& s, IDWriteTextFormat* f, float maxW = 10000, bool wrap = false);
     void Image(ID2D1Bitmap* b, RectF r, float opacity = 1);
-    void Hit(UINT id, RectF r, std::function<void()> click, std::function<void()> rclick = nullptr, bool focusable = true, bool hand = true);
+    // The pointer stays an arrow over controls, as in Windows' own windows; hand is for links.
+    void Hit(UINT id, RectF r, std::function<void()> click, std::function<void()> rclick = nullptr, bool focusable = true, bool hand = false);
+    // About the control just registered with Hit: its name for screen readers (and what it
+    // is), the text shown on hover, and its whole rectangle when Hit got a clipped one.
+    void Describe(const std::wstring& name, Role role = Role::Button, int state = -1);
+    void Tip(const std::wstring& tip);
+    void Bounds(RectF whole);
     void FocusRing(UINT id, RectF r, float radius);
+    // The scrolled part of a window: controls registered between the two belong to it.
+    // EndScroll takes the content's whole height, sets scrollMax and draws the scroll bar.
+    void BeginScroll(RectF view);
+    void EndScroll(float total);
+    // A short line at the bottom of the window that goes away by itself ("Copied"). With an
+    // action it stays longer and carries a button, such as Undo after deleting.
+    void Toast(const std::wstring& text, const std::wstring& action = L"", std::function<void()> act = nullptr);
+    static Surface* From(HWND h);          // the window object behind one of the switcher's windows, or null
+    void AcceptFiles();                    // files dropped on the window go to OnDrop
+    void Snap(UINT id, float value);       // an eased value jumps there at once
+    // Where the window was left last time, by name; false when there is no such place any more.
+    bool RestorePlace(const wchar_t* key);
     void DashedStroke(RectF r, D2D1_COLOR_F c, float radius);
+    // The line under a text box: the bottom 2 px of the box's own shape, so its ends follow
+    // the rounded corners instead of sticking out of them.
+    void FieldLine(RectF box, D2D1_COLOR_F c, float radius);
     void PushOpacity(float o);
     void PopOpacity();
     void Translate(float dx, float dy);
@@ -126,8 +170,9 @@ public:
 
     // ---- common controls drawn in the Windows 11 style
     bool Button(UINT id, RectF r, const std::wstring& label, bool primary, std::function<void()> click, bool danger = false, bool enabled = true);
-    void IconButton(UINT id, RectF r, const wchar_t* glyph, std::function<void()> click);
-    void Toggle(UINT id, float x, float y, bool on, std::function<void()> click, bool enabled = true);
+    // radius: 4 on its own; inside another rounded control, that one's radius less the gap to it.
+    void IconButton(UINT id, RectF r, const wchar_t* glyph, const std::wstring& tip, std::function<void()> click, float radius = 4);
+    void Toggle(UINT id, float x, float y, bool on, std::function<void()> click, bool enabled = true, const std::wstring& name = L"");
     void Check(UINT id, float x, float y, bool on, D2D1_COLOR_F fill);
     void Avatar(float cx, float cy, float d, const std::wstring& letters, COLORREF color, bool active, D2D1_COLOR_F ringBg);
     void Pill(RectF r, const std::wstring& text, D2D1_COLOR_F bg, D2D1_COLOR_F fg);   // a small rounded label
@@ -148,15 +193,38 @@ protected:
     virtual void OnDeactivate() {}
     virtual void OnShown() {}
     virtual void OnResized() {}            // a size-to-content window just changed its own height
+    virtual void OnDrop(const std::vector<std::wstring>& files) {}
     virtual LRESULT Extra(UINT m, WPARAM w, LPARAM l, bool& handled) { return 0; }
 
     float mx = -1, my = -1;
     bool borderless = false;
 
+public:
+    // ---- for screen readers (uia.cpp)
+    const std::vector<Region>& Regions() const { return regions; }
+    const std::vector<TextRun>& Texts() const { return texts; }
+    void Activate(UINT id);                // as a click on that control, a moment later
+    void FocusOn(UINT id);
+    std::shared_ptr<Surface*> link;        // emptied when the window object goes, for providers that outlive it
+
 private:
     ID2D1HwndRenderTarget* hwndRt = nullptr;   // the window's own target
     ID2D1RenderTarget* rt = nullptr;           // the one being drawn on: the window's, or a snapshot's
     std::vector<Region> regions, building;
+    std::vector<TextRun> texts, buildingTexts;
+    bool noRuns = false;                   // icons are not text to read
+    RectF scrollView{}; bool inScroll = false, dragging = false;
+    float thumbY = 0, thumbH = 0, dragOffset = 0;
+    HWND tipWnd = nullptr; UINT tipFor = 0; bool tipDark = false;
+    std::wstring toast, toastAction; ULONGLONG toastAt = 0;
+    std::function<void()> toastAct;
+    std::wstring placeKey;
+    void EnsureVisible(UINT id);
+    void ArmTip(UINT id);
+    void ShowTip();
+    void HideTip();
+    void SavePlace();
+    void DrawToast();
     std::unordered_map<UINT, std::pair<float, float>> anims;
     LARGE_INTEGER lastFrame{};
     float frameDt = 0;
@@ -174,6 +242,13 @@ private:
     static LRESULT CALLBACK EditProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR id, DWORD_PTR ref);
     LRESULT Handle(UINT m, WPARAM w, LPARAM l);
 };
+
+// The windows for screen readers (uia.cpp).
+namespace Acc {
+    bool Answer(Surface* s, WPARAM w, LPARAM l, LRESULT& result);   // WM_GETOBJECT; false when it isn't for UI Automation
+    void Gone(HWND h);                     // the window is being destroyed
+    void FocusChanged(Surface* s);         // keyboard focus moved to another control
+}
 
 namespace Glyphs {
     constexpr const wchar_t* Settings = L"\uE713";
@@ -196,4 +271,8 @@ namespace Glyphs {
     constexpr const wchar_t* View = L"\uE890";
     constexpr const wchar_t* Hide = L"\uED1A";
     constexpr const wchar_t* Info = L"\uE946";
+    constexpr const wchar_t* People = L"\uE716";
+    constexpr const wchar_t* ChevronDown = L"\uE70D";
+    constexpr const wchar_t* ChevronUp = L"\uE70E";
+    constexpr const wchar_t* Search = L"\uE721";
 }

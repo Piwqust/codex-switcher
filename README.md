@@ -31,6 +31,7 @@ Codex keeps one sign-in, so moving to another ChatGPT account means `codex logou
 - **Statistics per account.** Tokens today, this week and this month, streaks, the longest task, a 30-day chart, the skills and plugins used most, limit resets and when the subscription ends.
 - **Start the next window early.** One click, automatically when a window is idle, or every day at times you choose: a tiny request starts an account's 5-hour window, so it resets when you want it.
 - **Safe with renewed sign-ins.** ChatGPT replaces a sign-in's key whenever it is renewed. The switcher takes Codex's renewed copy back before every switch, so switching away and back never restores a stale one.
+- **Bought accounts, from the shop's message to ready.** The account manager reads the order (email, password, 2FA key, the month paid and the warranty), shows each account's 2FA code like an authenticator app, opens the site in a browser profile of its own, types the email, password and code with <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd>, keeps the new password and key, and reminds you before the warranty and the paid month end.
 - **Backups and other PCs.** Every account in one password-protected file or line of text. Codex Switcher's exports import too, and its accounts come over in one click.
 - **From your phone.** An optional page with the same list, on this PC or your home network, behind a secret link.
 - **Small and native.** One C++ exe of about 1 MB, no .NET or Electron, English and Russian, dark and light themes, emails hidden for screen sharing on request. Sign-ins are encrypted with Windows' own protection for your user.
@@ -58,10 +59,11 @@ You need Windows 10 or 11 and Codex: the [ChatGPT app](https://apps.microsoft.co
 | Refresh the limits | <kbd>F5</kbd> or ⟳ |
 | See an account's statistics | <kbd>I</kbd>, or **⋯ → Details and statistics** |
 | Rename, reorder or delete | <kbd>F2</kbd>, <kbd>Ctrl</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>, <kbd>Del</kbd>, or the **⋯** menu on an account |
+| Keep passwords, 2FA codes and orders, take in bought accounts | 👥 in the picker or <kbd>Ctrl</kbd>+<kbd>M</kbd>: the [account manager](docs/guide.md#account-manager) |
 | Hide emails while sharing the screen | Settings → Accounts → **Hide emails** |
 | Get to it from any app | <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd>, or click the tray icon |
 
-A green dot and frame mark the account Codex uses; the line at the top says whether ChatGPT is open (choosing an account restarts it with that one) and how many terminal sessions run. To have a click only switch Codex, without opening ChatGPT, turn off Settings → Switching → **Open ChatGPT when choosing an account**. The **⋯** menu also switches without opening the app, starts an account's 5-hour window, starts it automatically, hides its email, signs it in again, makes a desktop shortcut and saves its `auth.json`. The tray, Settings, backups, the browser page, the command line and troubleshooting are in the **[user guide](docs/guide.md)**.
+A green dot and frame mark the account Codex uses; the line at the top says whether ChatGPT is open (choosing an account restarts it with that one) and how many terminal sessions run. To have a click only switch Codex, without opening ChatGPT, turn off Settings → Switching → **Open ChatGPT with it**. The **⋯** menu also switches without opening the app, starts an account's 5-hour window, starts it automatically, hides its email, signs it in again, makes a desktop shortcut and saves its `auth.json`. The tray, Settings, backups, the browser page, the command line and troubleshooting are in the **[user guide](docs/guide.md)**.
 
 ## How it works
 

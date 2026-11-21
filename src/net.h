@@ -16,6 +16,7 @@ namespace Net {
 
     std::string Random(size_t n);                          // cryptographically random bytes
     std::string Sha256(const std::string& data);           // raw 32 bytes
+    std::string HmacSha1(const std::string& key, const std::string& data);   // raw 20 bytes, for 2FA codes
     std::wstring Hex(const std::string& bytes);
     std::string Base64Url(const std::string& bytes);       // no padding
     std::string Base64UrlDecode(const std::string& text);

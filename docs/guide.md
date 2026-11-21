@@ -11,6 +11,7 @@ Everything Codex Account Switcher can do, in the order you are likely to need it
 - [Continuing conversations the limit stopped](#continuing-conversations-the-limit-stopped)
 - [Limits](#limits)
 - [Account details and statistics](#account-details-and-statistics)
+- [Account manager](#account-manager)
 - [Starting 5-hour windows](#starting-5-hour-windows)
 - [Tray](#tray)
 - [Taskbar and shortcuts](#taskbar-and-shortcuts)
@@ -50,13 +51,14 @@ Everything Codex Account Switcher can do, in the order you are likely to need it
 
 On first start, the account Codex is signed in to becomes the first account on the list. Then:
 
-- **Add account** (or <kbd>Ctrl</kbd>+<kbd>N</kbd>) opens the ChatGPT sign-in page in your browser, the same one `codex login` uses. It always asks which account to use, so you can add a second account in a browser that is signed in to the first. **Copy link** on the banner gives you the link for a private window or another browser.
+- **Add account** (or <kbd>Ctrl</kbd>+<kbd>N</kbd>) opens the ChatGPT sign-in page in your default browser, the same page `codex login` uses. It always asks which account to sign in with, so a second account can be added from a browser that is signed in to the first. While the sign-in waits, the account has a row of its own: **Open again** opens the page once more, ⧉ copies the link to finish it in a private window or any other browser, **Cancel** drops it.
+- **The other ways** are behind the ⌄ on the same row: copy the sign-in link without opening anything, paste a shop's order or a line `email|password|2FA key`, take the sign-in Codex uses now, an `auth.json` file, a backup. <kbd>Ctrl</kbd>+<kbd>V</kbd> in the window takes whatever account the clipboard holds, and a file dropped on the window is read the same way.
 - **From Codex Switcher.** If you used [Codex Switcher](https://github.com/Lampese/codex-switcher), a banner offers its accounts: **Import** brings them over with their names (also in Settings → Accounts). Its exports, a `.cswf` file or a `css1.` line of text, import with Settings → Accounts → Backup → **Import…**. Afterwards use one switcher, not both: ChatGPT replaces a sign-in's key whenever it is renewed, so two programs renewing the same account sign each other out.
-- **From an auth.json file.** Settings → Accounts → **Choose file…** takes a sign-in Codex saved, or one this switcher saved on another PC with **⋯ → Save auth.json…**.
+- **From an auth.json file.** Settings → Accounts → Add an account → **From file…** takes a sign-in Codex saved, or one this switcher saved on another PC with **⋯ → Save auth.json…**.
 - **From a backup** of this switcher: see [Backups](#backups-and-moving-to-another-pc).
 - **Codex is signed in to an account that isn't on the list** (after a `codex login`, say): a banner says so, and **Add it** puts it on the list.
 
-Signing in to an account that is already on the list just gives it the new sign-in.
+Signing in to an account that is already on the list just gives it the new sign-in. With **Sign in again** on an account, if a different account comes back, the switcher asks whether to try again or add it separately instead of adding it silently.
 
 ## The picker
 
@@ -64,7 +66,7 @@ Signing in to an account that is already on the list just gives it the new sign-
 
 Each row shows the account's number, its name and plan, whether Codex uses it or when it was last used, its email, and what is left of its limits. A green dot and a green frame mark the account in use, and "Most limit left" marks the one worth switching to. The line under the title says whether ChatGPT is open (choosing an account then restarts it with that one) and how many Codex sessions run in terminals.
 
-**A click opens ChatGPT with the account.** Clicking an account switches Codex to it and opens the ChatGPT app with it; clicking the account in use just brings ChatGPT up. To have a click only switch, turn off Settings → Switching → **Open ChatGPT when choosing an account**. **Start with Windows** sits at the bottom of the window.
+**A click opens ChatGPT with the account.** Clicking an account switches Codex to it and opens the ChatGPT app with it; clicking the account in use just brings ChatGPT up. To have a click only switch, turn off Settings → Switching → **Open ChatGPT with it**. **Start with Windows** sits at the bottom of the window.
 
 <kbd>I</kbd> opens the [details](#account-details-and-statistics) of the account in focus: limit resets, the subscription and statistics.
 
@@ -79,14 +81,20 @@ The **⋯** menu on a row (or a right-click) has the rest: open ChatGPT with the
 | Details and statistics | ⋯ → Details and statistics | <kbd>I</kbd> |
 | Add an account | **Add account** | <kbd>Ctrl</kbd>+<kbd>N</kbd> |
 | Rename | ⋯ → Rename | <kbd>F2</kbd> |
-| Move an account | ⋯ → Move up / down | <kbd>Ctrl</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> |
+| Move an account | drag its row, or ⋯ → Move up / down | <kbd>Ctrl</kbd>+<kbd>↑</kbd> / <kbd>↓</kbd> |
 | Delete an account | ⋯ → Delete | <kbd>Del</kbd> |
+| Bring a deleted account back | **Undo** in the line that appears | <kbd>Ctrl</kbd>+<kbd>Z</kbd> |
+| Add whatever the clipboard holds | ⌄ on **Add account** | <kbd>Ctrl</kbd>+<kbd>V</kbd> |
 | Account menu | right-click or ⋯ | <kbd>Shift</kbd>+<kbd>F10</kbd> |
+| Account manager | 👥 | <kbd>Ctrl</kbd>+<kbd>M</kbd> |
 | Settings | ⚙ | <kbd>Ctrl</kbd>+<kbd>,</kbd> |
 | Close the window | ✕ | <kbd>Esc</kbd> |
 | Move between accounts | | <kbd>Tab</kbd> and the arrow keys |
+| Scroll a long list | the wheel, or drag the scroll bar | <kbd>PgUp</kbd> / <kbd>PgDn</kbd>, <kbd>Home</kbd> / <kbd>End</kbd> |
 
-From any app: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd> for the picker, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> to switch directly. You can change the picker's shortcut in Settings; if another app already uses it, Settings says so.
+Resting the pointer on an icon button says what it does. Narrator and other screen readers read every window: its rows, buttons and switches have names and can be pressed from there. The windows follow Windows' high contrast colours and its **Animation effects** setting, and Settings, account details and the account manager open where you left them.
+
+From any app: <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>X</kbd> for the picker, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> to switch directly. You can change the picker's shortcut in Settings → General; if another app already uses it, Settings says so.
 
 ## Switching
 
@@ -106,12 +114,12 @@ Before closing the app, the switcher asks: tasks running in it stop, and unsent 
 
 When a limit runs out mid-task, Codex stops with "You've hit your usage limit". After you switch, those conversations can carry on with the new account:
 
-- **Automatically:** turn on Settings → Switching → **Continue conversations the limit stopped**. A few seconds after a switch that opened the ChatGPT app, the switcher looks through the conversations of the last 24 hours and continues the ones whose last turn ended at the usage limit.
+- **Automatically:** turn on Settings → Switching → **Continue the stopped conversations**. A few seconds after a switch that opened the ChatGPT app, the switcher looks through the conversations of the last 24 hours and continues the ones whose last turn ended at the usage limit.
 - **By hand:** **Continue conversations stopped by the limit** in the tray's right-click menu, at any time.
 
 Each such conversation gets one message, "Continue the previous task.", queued with the Codex CLI (`codex queue`) and sent when the switcher opens it in the ChatGPT app. A banner in the picker follows the progress and says how many carried on. A conversation is continued at most once, even if you run it again, and conversations you have written in since, or that subagents run, are left alone.
 
-It uses the Codex CLI: the one npm installs (`npm i -g @openai/codex`), or else the copy that comes inside the ChatGPT app. Settings → Codex shows which one it found.
+It uses the Codex CLI: the one npm installs (`npm i -g @openai/codex`), or else the copy that comes inside the ChatGPT app. Settings → About shows which one it found.
 
 ## Limits
 
@@ -134,16 +142,46 @@ These are the statistics OpenAI keeps for Codex, asked with the account's own si
 
 <br clear="right">
 
+## Account manager
+
+<p align="center">
+  <img src="images/manager.png" alt="The account manager: an account from today's order, half secured, with its steps" width="760">
+</p>
+
+The 👥 button in the picker (<kbd>Ctrl</kbd>+<kbd>M</kbd>), the tray menu or Settings → Accounts opens a window with every account and its sign-in details: the password, the 2FA key and its current code, the order it came from, and when its paid month and the seller's warranty end. It is meant for accounts bought with a subscription, which arrive as a shop's message and need a few steps before they can be used.
+
+**Taking in an order.** Copy the shop's whole message and press **Paste an order**. The switcher finds the order number, the product (`1M` is a month paid, `W24H` a 24-hour warranty) and every `email|password|2FA key` line; the 2FA key may also be an `otpauth://` or `2fa.live` link. A bare line works too, split by `|`, tabs, `;` or `:`. Pasting the same order again adds nothing, and a later order for the same email only moves its dates on.
+
+**The steps.** A click on an account opens its steps; the circle on the left counts what is done:
+
+1. **Sign in on the site.** **Open the site** opens chatgpt.com in a browser profile of its own for that account (Edge, Chrome, Brave, Vivaldi or Firefox, whichever is your default), so it never mixes with your other accounts, and stays signed in there for next time.
+2. **Change the password.** **New password** makes a strong one, copies it and keeps it here. Set it on the site under Settings → Security, then press **Changed it**. The old one is kept aside until then.
+3. **Change the 2FA key.** Turn 2FA off and on again on the site, choose to enter the key by hand, and paste it with **Paste the key…**. The code of the new key shows at once, to type on the site; **Changed it** makes it the account's key.
+4. **Confirm the phone number.** Codex asks for it at the first sign-in; you do it yourself and tick it here.
+5. **Sign in to the switcher.** The usual ChatGPT sign-in, in your default browser; **Copy link** gives the link to paste into the account's own browser window, where the site already knows it. The account joins the list and the card turns green.
+
+**Ctrl+Alt+V types for you.** After **Open the site** or **Sign in**, <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> types the email, then the password, then the 2FA code into whatever field has the cursor, each followed by Enter; while changing the password it types the old one and then the new one twice. The card shows what comes next, and a click on a field picks it. Nothing on the sites is clicked for you: you see every page and answer every check yourself.
+
+**2FA codes.** Each account with a key shows its current code with a bar running out to the next one; a click copies it. **Code from a key…** does the same for any key you paste, like 2fa.fb.tools, until the switcher closes. A copied password or code is cleared from the clipboard after 45 seconds, unless you copied something else meanwhile.
+
+**Sign in to all.** With two or more cards not signed in yet, **Sign in to all** opens their sign-in windows one after another: the next one opens when the one before has come back, and **Stop** ends it. You still sign in yourself each time; <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>V</kbd> types for the card whose window is open.
+
+**Search.** The field beside the filters (<kbd>Ctrl</kbd>+<kbd>F</kbd>) finds accounts by email, order number or note. The filters then count what the search leaves, and <kbd>Esc</kbd> clears it.
+
+**Keeping track.** The filters show the accounts that need you, the ready ones, the ones whose paid month ends within three days and the ones already over; **Delete all** clears the last. A notification comes two hours before the warranty ends on an account that isn't ready yet, and a day before a paid month ends. The **⋯** menu copies the email, the password or the code, sets a password, a key or a note by hand, switches to the account or deletes it, with or without its place in the switcher's list.
+
+The details are kept in `%LOCALAPPDATA%\CodexAccounts\logins.dat`, encrypted for your Windows user like the accounts, and travel in [backups](#backups-and-moving-to-another-pc). Buying accounts goes against OpenAI's terms, and OpenAI may link and block many accounts used from one PC; that risk stays with you.
+
 ## Starting 5-hour windows
 
 A 5-hour window starts with the first request after the previous one ended. **⋯ → Start the 5-hour window now** sends one tiny request ("Hi", the smallest model Codex lists) so it starts now and resets five hours from now, and the tray menu does it for all accounts at once.
 
 The switcher can do it by itself, whenever a window is idle, unless the account's week is used up:
 
-- for every account: Settings → Limits → **Start 5-hour windows automatically**;
+- for every account: Settings → Limits → **When a window is idle**;
 - for some accounts only: **⋯ → Start its 5-hour windows automatically** on each of them.
 
-To have windows reset at hours of your choosing, turn on **Start them at set times** in Settings → Limits and set the times, for example `08:00, 13:00, 18:00`. At each, every account's window starts. A time the PC slept through is skipped rather than caught up later. The command line does the same from Task Scheduler: `CodexAccountSwitcher.exe --warmup all`.
+To have windows reset at hours of your choosing, turn on **Every day at set times** in Settings → Limits and set the times, for example `08:00, 13:00, 18:00`. At each, every account's window starts. A time the PC slept through is skipped rather than caught up later. The command line does the same from Task Scheduler: `CodexAccountSwitcher.exe --warmup all`.
 
 ## Tray
 
@@ -155,10 +193,10 @@ Closing the window leaves the switcher in the tray, where it opens instantly and
 - **Left-click** the icon for the account list with limits. A click on an account there opens ChatGPT with it, as in the main window.
 - **Double-click** it to open the main window.
 - **Hover** over it: the tooltip names the account in use and its limits.
-- **Right-click** it for the standard Windows menu: accounts, the one with the most left, Open ChatGPT, Restart ChatGPT, Refresh limits, Start 5-hour windows for all, Continue conversations stopped by the limit, Add account…, Settings, Quit switcher.
+- **Right-click** it for the standard Windows menu: accounts, the one with the most left, Open ChatGPT, Restart ChatGPT, Refresh limits, Start 5-hour windows for all, Continue conversations stopped by the limit, Add account…, Account manager…, Settings, Quit switcher.
 - When a new version is out, an **Update** button appears next to the list's title and in the right-click menu.
 
-If you would rather it quit with the window, turn off **Stay in the tray when closed** in Settings.
+If you would rather it quit with the window, turn off **Stay in the tray when the window closes** in Settings → General.
 
 <br clear="right">
 
@@ -175,7 +213,7 @@ The vault is encrypted for your Windows user, so copying it to another PC or a r
 2. Choose a password of at least 8 characters. Without it the backup can't be opened, and it can't be recovered.
 3. On the other PC: **Import…**, the file or the pasted text, then the password.
 
-Every account comes with its sign-in and name; accounts already there just get the newer sign-in. Keep the backup like a password: it signs in to every account in it.
+Every account comes with its sign-in and name, and the account manager's passwords and 2FA keys come too; accounts already there just get the newer sign-in. Keep the backup like a password: it signs in to every account in it.
 
 > [!IMPORTANT]
 > A sign-in renewed on one PC stops working on the other (see [Signed out](#troubleshooting)). Moving to a new PC is fine; using the same accounts on two PCs at once means signing in again now and then.
@@ -190,9 +228,9 @@ For screen sharing and streams, Settings → Accounts → **Hide emails** shows 
 
 <img src="images/browser.png" alt="The account list as a web page" width="420" align="right">
 
-Settings → In a browser → **Account list in a browser** serves the same list as a web page: limits, **Use** to switch, **Start 5h window**, **Open ChatGPT**. It suits a phone, a tablet, or a second computer at the desk.
+Settings → Switching → **Account list in a browser** serves the same list as a web page: limits, **Use** to switch, **Start 5h window**, **Open ChatGPT**. It suits a phone, a tablet, or a second computer at the desk.
 
-- Only this PC can open it, at the link in Settings, unless you turn on **Allow other devices**: then anything on your home network or [Tailscale](https://tailscale.com) can. Windows may ask to let the switcher through the firewall.
+- Only this PC can open it, at the link in Settings, unless you turn on **Let other devices in**: then anything on your home network or [Tailscale](https://tailscale.com) can. Windows may ask to let the switcher through the firewall.
 - The link carries a secret key, and nothing opens without it. **New link** replaces the key, so old links stop working.
 - Whoever has the link can switch your accounts and see their emails and limits, never the sign-ins. The page is plain HTTP: allow other devices only on networks you trust.
 - The port is 3210; if another program has it, Settings says so.
@@ -202,16 +240,16 @@ Settings → In a browser → **Account list in a browser** serves the same list
 ## Settings
 
 <p align="center">
-  <img src="images/settings.png" alt="Settings in the dark theme" width="620">
+  <img src="images/settings.png" alt="Settings in the dark theme, on the Switching page" width="720">
 </p>
 
-- **Codex:** the ChatGPT app and its version (with **Open** or **Restart**), the Codex CLI and where it is, and which sign-in file Codex uses.
-- **Switching:** opening ChatGPT when choosing an account, restarting it and the question before it, continuing conversations the limit stopped, hiding the picker after a switch.
-- **Limits:** how often limits refresh, the tray icon, automatic 5-hour windows and set times for them.
-- **Accounts:** signing in, `auth.json` files, Codex Switcher, backups, hiding emails.
-- **In a browser:** the web page and who may open it.
-- **Startup and look:** start with Windows, the tray, the theme (system, light or dark).
-- **Quick access, Language, About:** shortcuts, the jump list, the interface language, the data folder and updates.
+Five pages, picked on the left (<kbd>Ctrl</kbd>+<kbd>Tab</kbd> goes to the next one). An option that only matters when another is on, such as the question before restarting ChatGPT, shows up under it once that one is on. A click anywhere on a switch's row flips it.
+
+- **General:** start with Windows, staying in the tray, the shortcut for the list, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Alt</kbd>+digit, the theme and the language.
+- **Switching:** what choosing an account does (open ChatGPT, restart it if it's open, ask first, hide the list), continuing conversations the limit stopped, and the account list in a browser.
+- **Limits:** how often limits refresh, the tray icon, and starting 5-hour windows early: when idle, or every day at set times.
+- **Accounts:** adding one (sign in, or an `auth.json` file), Codex Switcher's accounts, backups, hiding emails.
+- **About:** the version and updates; the ChatGPT app, the Codex CLI and the sign-in file the switcher found; the folder with the saved accounts.
 
 ## Command line
 
@@ -243,7 +281,7 @@ With the switcher running, `--switch` goes through it, so its question before cl
 <details>
 <summary><b>ChatGPT doesn't open when I choose an account</b></summary>
 
-Settings → Switching → **Open ChatGPT when choosing an account** must be on, and Settings → Codex must show the app (it says "isn't installed" otherwise). If Windows refuses to start it, the switcher says so and `%LOCALAPPDATA%\CodexAccounts\switcher-error.log` notes why. `CodexAccountSwitcher.exe --diagnose > diagnose.txt` writes down what the switcher sees, for an issue.
+Settings → Switching → **Open ChatGPT with it** must be on, and Settings → About must show the app (it says "isn't installed" otherwise). If Windows refuses to start it, the switcher says so and `%LOCALAPPDATA%\CodexAccounts\switcher-error.log` notes why. `CodexAccountSwitcher.exe --diagnose > diagnose.txt` writes down what the switcher sees, for an issue.
 </details>
 
 <details>
@@ -267,13 +305,13 @@ The banner names the first one that wasn't and why. Usually the app didn't start
 <details>
 <summary><b>The global shortcut does nothing</b></summary>
 
-Most likely another app already uses it. Settings then says "Another app already uses this shortcut"; choose a different one there.
+Most likely another app already uses it. Settings → General then says "Another app already uses it"; choose a different one there.
 </details>
 
 <details>
 <summary><b>CODEX_HOME</b></summary>
 
-If you set `CODEX_HOME` for Codex, set it for the switcher too (as a user environment variable, then restart the switcher): it reads and writes `auth.json` in that folder. Settings → Codex → **Sign-in file** shows which file it uses.
+If you set `CODEX_HOME` for Codex, set it for the switcher too (as a user environment variable, then restart the switcher): it reads and writes `auth.json` in that folder. Settings → About → **Sign-in file** shows which file it uses.
 </details>
 
 <details>

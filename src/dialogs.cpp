@@ -133,7 +133,7 @@ namespace {
         void Field(int i, RectF r) {
             Fill(r.Inset(-1), T.menu, 4);
             Stroke(r.Inset(-1), T.controlStroke, 4);
-            Fill({ r.x - 1, r.B() - 1, r.w + 2, 2 }, fields[i] && GetFocus() == fields[i] ? T.text : T.controlStrong, 1);
+            FieldLine(r.Inset(-1), fields[i] && GetFocus() == fields[i] ? T.text : T.controlStrong, 4);
             RECT want{ (LONG)((r.x + 8) * scale), (LONG)((r.y + 7) * scale), (LONG)((r.R() - 8) * scale), (LONG)((r.B() - 6) * scale) };
             if (!font || fontScale != scale) {
                 if (font) DeleteObject(font);
@@ -168,12 +168,12 @@ namespace {
             }
             Field(0, { 24, y, w - 48, 34 }); y += 44;
             if (confirm) {
-                Text(Tr(L"Once more", L"Ещё раз"), { 24, y, w - 48, 18 }, Font(12), T.text2); y += 22;
+                Text(Tr(L"Once more", L"Ещё раз"), { 24, y, w - 48, 18 }, Font(12.5f), T.text2); y += 22;
                 Field(1, { 24, y, w - 48, 34 }); y += 44;
             }
             if (!error.empty()) {
-                auto h = Measure(error, Font(13), w - 48, true).height;
-                Text(error, { 24, y, w - 48, h }, Font(13), T.danger, Align::Left, false, true);
+                auto h = Measure(error, Font(12.5f), w - 48, true).height;
+                Text(error, { 24, y, w - 48, h }, Font(12.5f), T.danger, Align::Left, false, true);
                 y += h + 6;
             }
             y += 10;

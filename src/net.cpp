@@ -66,6 +66,12 @@ namespace Net {
         return out;
     }
 
+    std::string HmacSha1(const std::string& key, const std::string& data) {
+        std::string out(20, '\0');
+        if (BCryptHash(BCRYPT_HMAC_SHA1_ALG_HANDLE, (PUCHAR)key.data(), (ULONG)key.size(), (PUCHAR)data.data(), (ULONG)data.size(), (PUCHAR)&out[0], 20) < 0) return "";
+        return out;
+    }
+
     std::wstring Hex(const std::string& bytes) {
         std::wstring out;
         for (unsigned char b : bytes) out += Util::Format(L"%02x", b);

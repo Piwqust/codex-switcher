@@ -98,6 +98,7 @@ namespace Accounts {
     Added Add(const json::Value& auth, const std::wstring& name = L"", bool fresh = false);
     std::wstring Rename(const std::wstring& id, const std::wstring& name); // "" or why not
     void Remove(const std::wstring& id);
+    void Restore(const Account& a, int at);   // an account just removed, back where it was with its id
     void Move(const std::wstring& id, int to);
 
     struct SwitchOptions { bool restartApp = true, openApp = false; };
@@ -125,7 +126,7 @@ namespace Accounts {
     std::wstring LegacyFile();             // Codex Switcher's %USERPROFILE%\.codex-switcher\accounts.json
     std::vector<Legacy> LegacyAccounts(std::wstring& error);
     json::Value LegacyAuth(const json::Value& entry);       // one entry of that file as auth.json
-    struct Imported { int added = 0, updated = 0, skipped = 0; std::wstring error; };
+    struct Imported { int added = 0, updated = 0, skipped = 0, logins = 0; std::wstring error; };
     Imported ImportLegacy();               // all of them; names that are emails become the usual short ones
 
     // Backups of every account, to move them to another PC: encrypted with a password you

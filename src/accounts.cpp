@@ -1,3 +1,4 @@
+#include "logins.h"
 #include "accounts.h"
 #include "codex.h"
 #include "net.h"
@@ -547,6 +548,14 @@ namespace Accounts {
         Save(list);
     }
 
+    void Restore(const Account& a, int at) {
+        Lock lock;
+        auto list = Load();
+        for (auto& x : list) if (x.id == a.id) return;
+        list.insert(list.begin() + std::max(0, std::min(at, (int)list.size())), a);
+        Save(list);
+    }
+
     void Move(const std::wstring& id, int to) {
         Lock lock;
         auto list = Load();
@@ -958,6 +967,9 @@ namespace Accounts {
                 arr.arr.push_back(o);
             }
         }
+        // Passwords and 2FA keys from the account manager, so a move to another PC keeps them.
+        auto logins = Creds::Load();
+        if (!logins.empty()) { auto& la = v[L"logins"]; la = json::Value::MakeArray(); for (auto& c : logins) la.arr.push_back(Creds::ToJson(c)); }
         std::wstring text; json::Write(text, v);
         auto plain = Util::Utf8(text);
         SecureZeroMemory(&text[0], text.size() * sizeof(wchar_t));
@@ -1048,6 +1060,7 @@ namespace Accounts {
                     if (!auth || IdentityOf(*auth).empty()) { r.skipped++; continue; }
                     AddFrom(r, *auth, a.Str(L"name"), (long long)a.Num(L"lastUsed", 0));
                 }
+            if (auto logins = v.Find(L"logins")) r.logins = Creds::MergeJson(*logins);
         } else if (kind == BackupKind::CodexSwitcherFile) {
             // Its own accounts.json, encrypted.
             if (auto list = v.Find(L"accounts"))

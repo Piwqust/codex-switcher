@@ -38,7 +38,7 @@ The switcher therefore takes that copy back into the vault before every switch, 
 ## Step by step
 
 1. **Finds the app.** The Store package `OpenAI.Codex` through the per-user package repository in the registry. Its app is now ChatGPT (`app\ChatGPT.exe`), with Codex inside; an older copy is `Codex.exe`. A different exe can be pointed at with `--codex-path`.
-2. **Keeps accounts.** `%LOCALAPPDATA%\CodexAccounts\accounts.dat` holds each account's `auth.json`, name, email, plan and ids, encrypted. Settings and the last limits seen are in `settings.json` and `usage.json` next to it.
+2. **Keeps accounts.** `%LOCALAPPDATA%\CodexAccounts\accounts.dat` holds each account's `auth.json`, name, email, plan and ids, encrypted. The account manager's passwords, 2FA keys and orders are in `logins.dat`, encrypted the same way; settings and the last limits seen are in `settings.json` and `usage.json` next to it.
 3. **Knows which account is in use** by the ChatGPT workspace and user ids in the tokens of `auth.json`, so the same email in two workspaces is two accounts.
 4. **Switches.** Takes the renewed copy back; renews the new account first if its token has expired; closes the app's process tree if it runs and ends the app servers editors run (they restart themselves); writes `auth.json` (to a temporary file, then swapped in, so it is never half-written); opens the app with the new account through its package, as the Start menu does (or only if it was open, when Settings say so).
 5. **Watches.** A process snapshot shows the app, terminal sessions and editor servers, without WMI or PowerShell.

@@ -48,8 +48,8 @@ namespace {
         void Limit(RectF r, float y, const wchar_t* label, double left, long long reset, bool started) {
             long long now = Core::NowMs() / 1000;
             bool out = left == 0 && reset > now;
-            Text(label, { r.x + 16, y, 70, 20 }, Font(13), T.text2);
-            Meter({ r.x + 90, y + 7, r.w - 90 - 250, 7 }, left);
+            Text(label, { r.x + 16, y, 70, 20 }, Font(12.5f), T.text2);
+            Meter({ r.x + 90, y + 7, std::max(40.f, r.w - 90 - 250), 7 }, left);
             Text(left < 0 ? L"—" : Util::Format(Tr(L"%d%% left", L"осталось %d%%"), (int)std::lround(left)), { r.R() - 244, y - 1, 110, 22 }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), out ? T.danger : T.text, Align::Right);
             std::wstring when;
             if (out) when = Tr(L"back ", L"снова ") + Core::ResetTime(reset);
@@ -59,9 +59,9 @@ namespace {
         }
 
         void Tile(RectF r, const std::wstring& value, const std::wstring& label) {
-            Fill(r, T.layer, 6); Stroke(r, T.layerStroke, 6);
+            Fill(r, T.layer, 8); Stroke(r, T.layerStroke, 8);
             Text(value, { r.x + 12, r.y + 10, r.w - 24, 26 }, Font(20, DWRITE_FONT_WEIGHT_SEMI_BOLD, true), T.text);
-            Text(label, { r.x + 12, r.y + 38, r.w - 24, 18 }, Font(12), T.text2);
+            Text(label, { r.x + 12, r.y + 38, r.w - 24, 18 }, Font(12.5f), T.text2);
         }
 
         void Chart(RectF r, const Stats& s) {
@@ -69,14 +69,6 @@ namespace {
             std::vector<std::pair<std::wstring, long long>> days(s.daily.end() - std::min<size_t>(30, s.daily.size()), s.daily.end());
             if (days.empty()) return;
             long long top = 1; for (auto& d : days) top = std::max(top, d.second);
-            float plot = r.h - 22, bw = (r.w - 32) / days.size();
-            for (size_t i = 0; i < days.size(); i++) {
-                float h = std::max(2.f, (float)(plot * days[i].second / (double)top));
-                bool today = i + 1 == days.size();
-                auto c = today ? T.success : T.text3;
-                if (!days[i].second) c.a *= .4f;
-                Fill({ r.x + 16 + i * bw + 1, r.y + plot - h, std::max(2.f, bw - 3), h }, c, 1.5f);
-            }
             // "Oct 22" / "22 окт"
             auto monthDay = [](const std::wstring& d) {
                 static const wchar_t* en[] = { L"Jan", L"Feb", L"Mar", L"Apr", L"May", L"Jun", L"Jul", L"Aug", L"Sep", L"Oct", L"Nov", L"Dec" };
@@ -86,6 +78,20 @@ namespace {
                 if (m < 1 || m > 12) return d;
                 return L10n::ru ? Util::Format(L"%d %s", day, ru[m - 1]) : Util::Format(L"%s %d", en[m - 1], day);
             };
+            float plot = r.h - 22, bw = (r.w - 32) / days.size();
+            for (size_t i = 0; i < days.size(); i++) {
+                float h = std::max(2.f, (float)(plot * days[i].second / (double)top));
+                bool today = i + 1 == days.size();
+                // The day under the pointer stands out, and its figure shows beside it.
+                UINT id = Id("day", (int)i);
+                RectF col{ r.x + 16 + i * bw, r.y, bw, plot };
+                float hot = HotT(id);
+                auto c = Mix(today ? T.success : T.text3, T.text, today ? 0 : hot * .8f);
+                if (!days[i].second) c.a *= .4f;
+                Fill({ col.x + 1, r.y + plot - h, std::max(2.f, bw - 3), h }, c, 1.5f);
+                Hit(id, col, nullptr, nullptr, false, false);
+                Tip(monthDay(days[i].first) + L": " + Tokens(days[i].second));
+            }
             Text(monthDay(days.front().first), { r.x + 16, r.B() - 18, 80, 16 }, Font(11), T.text3);
             Text(monthDay(days.back().first), { r.R() - 96, r.B() - 18, 80, 16 }, Font(11), T.text3, Align::Right);
             Text(Tr(L"max ", L"макс. ") + Tokens(top), { r.R() - 156, r.y - 21, 140, 16 }, Font(11), T.text3, Align::Right);
@@ -101,6 +107,7 @@ namespace {
             bool loading = App::StatsLoading(id);
             float y = 18 - scrollY, w = Wd();
             auto pid = it->id;
+            BeginScroll({ 0, 0, w, Client().h });
 
             // Who it is, and the way to switch to it.
             Avatar(Pad + 26, y + 28, 52, it->letters, it->color, it->active, T.dark ? Rgba(0x202020) : Rgba(0xF3F3F3));
@@ -112,12 +119,12 @@ namespace {
             auto plan = it->PlanLabel();
             float nw = std::min(Measure(it->shownName, Font(20, DWRITE_FONT_WEIGHT_SEMI_BOLD, true)).width + 2, tw - 70);
             Text(it->shownName, { tx, y + 2, nw, 30 }, Font(20, DWRITE_FONT_WEIGHT_SEMI_BOLD, true), T.text);
-            if (!plan.empty()) { float pw = Measure(plan, Font(10.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14; Pill({ tx + nw + 8, y + 9, pw, 18 }, plan, T.accentTint, T.text2); }
+            if (!plan.empty()) { float pw = Measure(plan, Font(11, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14; Pill({ tx + nw + 8, y + 9, pw, 18 }, plan, T.accentTint, T.text2); }
             auto line = (it->active ? std::wstring(Tr(L"In use", L"Используется")) : it->Status()) + (it->shownEmail.empty() ? L"" : L"  ·  " + it->shownEmail);
-            Text(line, { tx, y + 32, tw, 20 }, Font(13), it->active ? T.success : T.text2);
+            Text(line, { tx, y + 32, tw, 20 }, Font(12.5f), it->active ? T.success : T.text2);
             if (showUse) Button(Id("use"), { w - Pad - 44 - bw, y + 12, bw, 32 }, use, true, [pid] { App::Switch(pid, false); });
             if (loading || App::FetchingUsage()) Spinner(w - Pad - 16, y + 28, 8);
-            else IconButton(Id("refresh"), { w - Pad - 32, y + 12, 32, 32 }, Glyphs::Refresh, [pid] { App::FetchStats(pid); App::RefreshUsage(true, pid); });
+            else IconButton(Id("refresh"), { w - Pad - 32, y + 12, 32, 32 }, Glyphs::Refresh, Tr(L"Refresh limits and statistics (F5)", L"Обновить лимиты и статистику (F5)"), [pid] { App::FetchStats(pid); App::RefreshUsage(true, pid); });
             y += 64;
 
             // ---------------------------------------------------------------- limits
@@ -135,7 +142,7 @@ namespace {
                 if (!u.known) h = 64;
                 RectF r = Card(y, h);
                 float ly = y + 16;
-                if (!u.known) Text(u.problem.empty() ? (it->fetching ? std::wstring(Tr(L"Getting limits…", L"Получаю лимиты…")) : std::wstring(Tr(L"No limits yet", L"Лимитов пока нет"))) : u.problem, { r.x + 16, r.y, r.w - 32, r.h }, Font(13), u.signedOut ? T.danger : T.text3);
+                if (!u.known) Text(u.problem.empty() ? (it->fetching ? std::wstring(Tr(L"Getting limits…", L"Получаю лимиты…")) : std::wstring(Tr(L"No limits yet", L"Лимитов пока нет"))) : u.problem, { r.x + 16, r.y, r.w - 32, r.h }, Font(12.5f), u.signedOut ? T.danger : T.text3);
                 else {
                     bool started = u.fiveReset > now && (u.FiveNow() > 0 || u.fiveReset - now < 5 * 3600 - 180);
                     if (u.five >= 0) { Limit(r, ly, Tr(L"5 hours", L"5 часов"), u.FiveLeft(), u.fiveReset, started || u.FiveLeft() <= 0); ly += 30; }
@@ -146,26 +153,26 @@ namespace {
                         auto c = left >= 0 && left <= 3 ? T.danger : left >= 0 && left <= 10 ? (T.dark ? Rgba(0xE8A33D) : Rgba(0xB86E00)) : T.text2;
                         auto t = Util::Format(Tr(L"Limit resets available: %d", L"Доступно сбросов лимита: %d"), resets);
                         if (resetNext) t += Tr(L" · the first expires ", L" · первый сгорает ") + Date(resetNext * 1000);
-                        Text(t, { r.x + 16, ly, r.w - 32, 20 }, Font(13), c); ly += 26;
+                        Text(t, { r.x + 16, ly, r.w - 32, 20 }, Font(12.5f), c); ly += 26;
                     }
                     if (sub) {
                         bool ended = sub < Core::NowMs();
                         auto t = ended ? Tr(L"The subscription ended ", L"Подписка закончилась ") + Date(sub) : Util::Format(Tr(L"%s until ", L"%s до "), plan.c_str()) + Date(sub);
-                        Text(t, { r.x + 16, ly, r.w - 32, 20 }, Font(13), ended ? T.danger : T.text2); ly += 26;
+                        Text(t, { r.x + 16, ly, r.w - 32, 20 }, Font(12.5f), ended ? T.danger : T.text2); ly += 26;
                     }
-                    for (auto& n : notes) { Text(n, { r.x + 16, ly, r.w - 32, 20 }, Font(13), T.text2); ly += 26; }
+                    for (auto& n : notes) { Text(n, { r.x + 16, ly, r.w - 32, 20 }, Font(12.5f), T.text2); ly += 26; }
                 }
                 y += h + 4;
             }
 
             // ---------------------------------------------------------------- statistics
             y += Section(y, Tr(L"Codex usage", L"Использование Codex"));
-            if (it->apiKey) { Text(Tr(L"API keys have no Codex statistics", L"У API-ключей нет статистики Codex"), { Pad + 2, y, 400, 20 }, Font(13), T.text3); y += 30; }
+            if (it->apiKey) { Text(Tr(L"API keys have no Codex statistics", L"У API-ключей нет статистики Codex"), { Pad + 2, y, 400, 20 }, Font(12.5f), T.text3); y += 30; }
             else if (!st || !st->known) {
                 RectF r = Card(y, 64);
                 auto msg = loading ? std::wstring(Tr(L"Getting statistics…", L"Получаю статистику…")) : st && !st->problem.empty() ? st->problem : std::wstring(Tr(L"No statistics yet", L"Статистики пока нет"));
                 if (loading) Spinner(r.x + 28, r.y + 32, 8);
-                Text(msg, { r.x + (loading ? 48.f : 16.f), r.y, r.w - 64, r.h }, Font(13), T.text3);
+                Text(msg, { r.x + (loading ? 48.f : 16.f), r.y, r.w - 64, r.h }, Font(12.5f), T.text3);
                 y += 68;
             } else {
                 float gw = w - 2 * Pad, tw4 = (gw - 3 * 8) / 4, th = 64;
@@ -177,7 +184,7 @@ namespace {
                     { Tokens(st->peakDaily), Tr(L"Best day", L"Лучший день") },
                     { Days(st->streak), Tr(L"Current streak", L"Серия сейчас") },
                     { Days(st->longestStreak), Tr(L"Longest streak", L"Рекорд серии") },
-                    { Duration(st->longestTask), Tr(L"Longest task", L"Самая долгая задача") },
+                    { Duration(st->longestTask), Tr(L"Longest task", L"Рекорд задачи") },
                 };
                 for (int i = 0; i < 8; i++) Tile({ Pad + (i % 4) * (tw4 + 8), y + (i / 4) * (th + 8), tw4, th }, tiles[i].first, tiles[i].second);
                 y += 2 * (th + 8) + 4;
@@ -202,9 +209,9 @@ namespace {
                 }
                 if (!facts.empty()) {
                     std::wstring t; for (auto& f : facts) t += (t.empty() ? L"" : L"  ·  ") + f;
-                    float h = Measure(t, Font(13), w - 2 * Pad - 32, true).height + 24;
+                    float h = Measure(t, Font(12.5f), w - 2 * Pad - 32, true).height + 24;
                     RectF r = Card(y, h);
-                    Text(t, { r.x + 16, r.y + 12, r.w - 32, h - 24 }, Font(13), T.text2, Align::Left, false, true);
+                    Text(t, { r.x + 16, r.y + 12, r.w - 32, h - 24 }, Font(12.5f), T.text2, Align::Left, false, true);
                     y += h + 4;
                 }
                 if (!st->top.empty()) {
@@ -214,26 +221,30 @@ namespace {
                     for (size_t i = 0; i < n; i++) {
                         auto& t = st->top[i];
                         float ry = r.y + 36 + i * 28;
-                        Text(t.name, { r.x + 16, ry, r.w - 200, 22 }, Font(13.5f), T.text);
+                        Text(t.name, { r.x + 16, ry, r.w - 200, 22 }, Font(14), T.text);
                         auto kind = t.kind == L"plugin" ? std::wstring(Tr(L"plugin", L"плагин")) : t.kind == L"skill" ? std::wstring(Tr(L"skill", L"навык")) : t.kind;
-                        float kw = Measure(kind, Font(10.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14;
+                        float kw = Measure(kind, Font(11, DWRITE_FONT_WEIGHT_SEMI_BOLD)).width + 14;
                         Pill({ r.R() - 90 - kw, ry + 2, kw, 18 }, kind, T.badge, T.text2);
-                        Text(std::to_wstring(t.count), { r.R() - 80, ry, 64, 22 }, Font(13.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text, Align::Right);
+                        Text(std::to_wstring(t.count), { r.R() - 80, ry, 64, 22 }, Font(14, DWRITE_FONT_WEIGHT_SEMI_BOLD), T.text, Align::Right);
                     }
                     y += 40 + n * 28.f + 4;
                 }
                 auto asOf = st->asOf ? st->asOf : st->at;
-                Text(Tr(L"Figures from OpenAI, as of ", L"Данные OpenAI на ") + Core::Age(asOf) + (st->problem.empty() ? L"" : L"  ·  " + st->problem), { Pad + 2, y + 6, w - 2 * Pad, 18 }, Font(11.5f), T.text3);
+                Text(Tr(L"Figures from OpenAI, as of ", L"Данные OpenAI на ") + Core::Age(asOf) + (st->problem.empty() ? L"" : L"  ·  " + st->problem), { Pad + 2, y + 6, w - 2 * Pad, 18 }, Font(11), T.text3);
                 y += 30;
             }
             y += 16;
-            float total = y + scrollY;
-            scrollMax = std::max(0.f, total - Client().h);
-            if (scrollY > scrollMax) { scrollY = scrollMax; Invalidate(); }
-            if (scrollMax > 0) {
-                float ch = Client().h, sh = std::max(40.f, ch * ch / total), sy = (ch - sh) * scrollY / scrollMax;
-                Fill({ Client().w - 6, sy + 2, 3, sh - 4 }, T.text3, 1.5f);
-            }
+            EndScroll(y + scrollY);
+        }
+
+        // Narrower than this, the limits' figures and the tiles would run into each other.
+        LRESULT Extra(UINT m, WPARAM, LPARAM l, bool& handled) override {
+            if (m != WM_GETMINMAXINFO || !hwnd) return 0;
+            auto mm = (MINMAXINFO*)l;
+            mm->ptMinTrackSize.x = (LONG)(580 * scale);
+            mm->ptMinTrackSize.y = (LONG)(420 * scale);
+            handled = true;
+            return 0;
         }
 
         bool OnKey(UINT vk, bool) override {
@@ -251,7 +262,8 @@ namespace Details {
         if (fresh) win = new DetailsWin(), win->Start();
         win->id = id; win->scrollY = 0;
         if (auto it = App::Find(id)) SetWindowTextW(win->hwnd, (it->shownName + L" — " + AppTitle()).c_str());
-        if (fresh || !win->Visible()) {
+        // Where it was left; the first time, in the middle of the screen the pointer is on.
+        if (!win->Visible() && !win->RestorePlace(L"details") && fresh) {
             POINT pt; GetCursorPos(&pt);
             MONITORINFO mi{ sizeof mi }; GetMonitorInfoW(MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST), &mi);
             RECT wr; GetWindowRect(win->hwnd, &wr);

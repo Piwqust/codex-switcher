@@ -1,4 +1,5 @@
 #include "app.h"
+#include "logins.h"
 #include "codex.h"
 #include "net.h"
 #include "web.h"
@@ -17,7 +18,23 @@ std::wstring Item::Status() const {
     if (warming) return Tr(L"Starting the window…", L"Запускаю окно…");
     if (usage.signedOut) return Tr(L"Signed out", L"Сеанс завершён");
     if (active) return Tr(L"In use", L"Используется");
-    return Util::When(lastUsed);
+    if (lastUsed <= 0) return Util::When(lastUsed);
+    // A bare date says nothing: "Used today, 10:09", "Выбран 14 октября".
+    auto when = Util::When(lastUsed);
+    if (!when.empty() && (L10n::ru || when.rfind(L"Today", 0) == 0 || when.rfind(L"Yesterday", 0) == 0)) CharLowerBuffW(&when[0], 1);
+    return Tr(L"Used ", L"Выбран ") + when;
+}
+
+std::wstring Item::Spoken(bool best) const {
+    std::wstring s = shownName;
+    auto p = PlanLabel();
+    if (!p.empty()) s += L", " + p;
+    s += L", " + (best ? std::wstring(Tr(L"most limit left", L"больше всего лимита")) : Status());
+    if (usage.known && !apiKey) {
+        if (usage.five >= 0) s += Util::Format(Tr(L", 5 hours: %d%% left", L", 5 часов: осталось %d%%"), (int)std::lround(usage.FiveLeft()));
+        if (usage.week >= 0) s += Util::Format(Tr(L", week: %d%% left", L", неделя: осталось %d%%"), (int)std::lround(usage.WeekLeft()));
+    }
+    return s;
 }
 
 std::wstring Item::PlanLabel() const {
@@ -40,7 +57,7 @@ namespace App {
 
     enum : UINT { WM_TRAY = WM_APP + 1, WM_REFRESHED, WM_SWITCHED, WM_USAGE, WM_USAGE_DONE, WM_SIGNAL, WM_RENAME, WM_RUN, WM_LOGIN, WM_ADDED, WM_WARMED,
                   WM_STATS, WM_RECOVERY, WM_SYNC };
-    enum : UINT_PTR { TimerRefresh = 1, TimerSoon = 2, TimerHide = 3, TimerUsage = 4, TimerUpdate = 5, TimerRecovery = 6 };
+    enum : UINT_PTR { TimerRefresh = 1, TimerSoon = 2, TimerHide = 3, TimerUsage = 4, TimerUpdate = 5, TimerRecovery = 6, TimerUndo = 7 };
     const int HotkeyPicker = 1, HotkeyAccount = 10;   // 11..19 for Ctrl+Shift+Alt+1..9
 
     static UINT taskbarCreated;
@@ -50,7 +67,8 @@ namespace App {
     static std::atomic<bool> recoveryAlive{ false };   // the thread continuing conversations runs
     static std::map<std::wstring, long long> usageTried, statsTried;   // when each was last asked, answered or not
     static std::vector<int> accountTaken;
-    static std::wstring pendingRename, signInLink, signInFor;
+    static std::wstring pendingRename, signInLink, signInFor, signInCred;
+    static void ForgetDeleted();
     static HANDLE showEvt, exitEvt, addEvt, reloadEvt;
     static std::map<std::wstring, Usage> usage;
     static State state;
@@ -83,7 +101,7 @@ namespace App {
         return best;
     }
     bool FetchingUsage() { return fetching; }
-    static void RedrawAll() { Picker::Invalidate(); Flyout::Invalidate(); SettingsWin::Invalidate(); Details::Invalidate(); }
+    static void RedrawAll() { Picker::Invalidate(); Flyout::Invalidate(); SettingsWin::Invalidate(); Details::Invalidate(); Manager::Invalidate(); }
     static HWND Owner(HWND w) { return w && IsWindowVisible(w) ? w : Picker::Visible() ? Picker::Handle() : nullptr; }
 
     // ------------------------------------------------------------ settings
@@ -167,6 +185,9 @@ namespace App {
     void SetWebLan(bool on) { Settings::Set(L"WebLan", on); Web::Apply(); }
 
     // "jo•••@g•••.com": enough to tell accounts apart on a shared screen, not to read them.
+    static std::wstring MaskText(const std::wstring& s);
+    std::wstring Masked(const std::wstring& text) { return MaskText(text); }
+
     static std::wstring MaskText(const std::wstring& s) {
         if (s.empty()) return s;
         auto at = s.find(L'@');
@@ -331,6 +352,9 @@ namespace App {
 
     // A native menu, and its choice. In the demo's checks it never shows: its items go to the
     // trace, and the check picks one by name through test-menu.txt.
+    static int RunMenu(HMENU m, UINT flags, POINT at, HWND owner);
+    int PopupMenu(HMENU m, POINT at, HWND owner) { return RunMenu(m, TPM_RIGHTBUTTON, at, owner); }
+
     static int RunMenu(HMENU m, UINT flags, POINT at, HWND owner) {
         if (!Test::On()) return TrackPopupMenuEx(m, flags | TPM_RETURNCMD, at.x, at.y, owner, nullptr);
         auto pick = Test::Take(L"test-menu.txt");
@@ -390,6 +414,7 @@ namespace App {
         else if (up == Update::Phase::Downloading || up == Update::Phase::Installing) AppendMenuW(m, MF_STRING | MF_GRAYED, 0, Tr(L"Updating…", L"Обновляется…"));
         AppendMenuW(m, MF_STRING, 1, Tr(L"Show accounts", L"Открыть окно выбора"));
         AppendMenuW(m, MF_STRING, 2, Tr(L"Add account…", L"Добавить аккаунт…"));
+        AppendMenuW(m, MF_STRING, 12, Tr(L"Account manager…", L"Управление аккаунтами…"));
         AppendMenuW(m, MF_STRING, 3, Tr(L"Settings", L"Настройки"));
         AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(m, MF_STRING, 4, Tr(L"Quit switcher", L"Закрыть переключатель"));
@@ -410,6 +435,7 @@ namespace App {
         else if (cmd == 1) ShowPicker();
         else if (cmd == 2) AddAccount();
         else if (cmd == 3) ShowSettings();
+        else if (cmd == 12) ShowManager();
         else if (cmd == 4) Exit();
     }
 
@@ -605,16 +631,18 @@ namespace App {
     }
 
     void ShowSettings() { Test::Trace(L"window|settings"); Flyout::Hide(); SettingsWin::Show(); Refresh(); }
+    void ShowManager() { Flyout::Hide(); Manager::Show(); Refresh(); }
 
     void ThemeChanged() {
         Gfx::ApplyTheme();
         WinShell::DarkMenus(Gfx::T.dark);
-        Picker::Restyle(); Flyout::Restyle(); SettingsWin::Restyle(); Dialogs::RestyleAll();
+        Picker::Restyle(); Flyout::Restyle(); SettingsWin::Restyle(); Details::Restyle(); Manager::Restyle(); Dialogs::RestyleAll();
         trayValue = -2; UpdateTrayIcon();   // the taskbar may have changed colour too
     }
 
     void Exit() {
         Test::Trace(L"exit");
+        ForgetDeleted();
         Login::Cancel();
         Web::Stop();
         // Continuing conversations stops at its next step; it never leaves a message half sent.
@@ -714,36 +742,59 @@ namespace App {
 
     // ---- adding
 
-    struct AddDone { Accounts::Added a; std::wstring forId; bool fromLogin = false; int imported = 0, skipped = 0; };
+    // credId: the manager's card the sign-in was started from.
+    struct AddDone { Accounts::Added a; std::wstring forId; bool fromLogin = false; int imported = 0, skipped = 0; std::wstring credId; };
 
-    static void AddAuth(const json::Value& auth, const std::wstring& forId, bool fromLogin) {
-        std::thread([auth, forId, fromLogin] {
-            auto d = new AddDone{ {}, forId, fromLogin };
+    static void AddAuth(const json::Value& auth, const std::wstring& forId, bool fromLogin, const std::wstring& credId = L"") {
+        std::thread([auth, forId, fromLogin, credId] {
+            auto d = new AddDone{ {}, forId, fromLogin, 0, 0, credId };
             try { d->a = Accounts::Add(auth, L"", fromLogin); } catch (const std::wstring& e) { d->a.error = e; } catch (...) { d->a.error = Tr(L"Something went wrong", L"Что-то пошло не так"); }
             if (!PostMessageW(tray, WM_ADDED, 0, (LPARAM)d)) delete d;
         }).detach();
     }
 
-    static void BeginLogin(const std::wstring& forId) {
-        if (Login::Active()) { ShowPicker(); return; }
+    // open: the page goes to the default browser, as any link would. Without it the sign-in
+    // only waits, and the link is taken to another browser by hand.
+    static void BeginLogin(const std::wstring& forId, const std::wstring& credId = L"", bool open = true) {
+        if (Login::Active()) { if (credId.empty()) ShowPicker(); else Dialogs::Info(Manager::Handle(), Tr(L"Another sign-in is waiting", L"Уже ждёт другой вход"), Tr(L"Finish it in the browser or cancel it first", L"Завершите его в браузере или сначала отмените")); return; }
         std::wstring url, err;
         bool ok = Login::Begin(url, err, [](Login::Result r) {
             auto p = new Login::Result(std::move(r));
             if (!PostMessageW(tray, WM_LOGIN, 0, (LPARAM)p)) delete p;
         });
-        if (!ok) { Dialogs::Info(Owner(nullptr), Tr(L"Couldn't start signing in", L"Не удалось начать вход"), err); return; }
-        signInLink = url; signInFor = forId;
-        Test::Trace(L"login|begin|" + forId);
-        ShowPicker();
-        Util::Open(url);
+        if (!ok) {
+            Dialogs::Info(Owner(nullptr), Tr(L"Couldn't start signing in", L"Не удалось начать вход"), err);
+            return;
+        }
+        signInLink = url; signInFor = forId; signInCred = credId;
+        Test::Trace(L"login|begin|" + forId + (credId.empty() ? L"" : L"|card:" + credId));
+        if (credId.empty()) ShowPicker();
+        if (open) Util::Open(url);
         RedrawAll();
     }
 
     void AddAccount() { BeginLogin(L""); }
+    void AddAccountByLink() {
+        if (Login::Active()) { ShowPicker(); return; }
+        BeginLogin(L"", L"", false);
+        if (signInLink.empty()) return;
+        Test::Trace(L"login|link");
+        auto where = Surface::From(Picker::Handle());
+        if (Util::CopyText(Picker::Handle(), signInLink) && where) where->Toast(Tr(L"Link copied: paste it into any browser", L"Ссылка скопирована: вставьте её в любой браузер"));
+    }
+    void SignInWith(const std::wstring& credId) { BeginLogin(L"", credId); }
+    std::wstring SigningInFor() { return Login::Active() ? signInCred : L""; }
     void SignInAgain(const std::wstring& id) { BeginLogin(id); }
-    void CancelSignIn() { Test::Trace(L"login|cancel"); Login::Cancel(); signInLink.clear(); RedrawAll(); }
+    void CancelSignIn() { Test::Trace(L"login|cancel"); Login::Cancel(); signInLink.clear(); signInCred.clear(); RedrawAll(); }
     bool SigningIn() { return Login::Active(); }
     std::wstring SignInLink() { return signInLink; }
+    std::wstring SigningInAccount() { return Login::Active() && !signInLink.empty() ? signInFor : L""; }
+    bool SigningInNew() { return Login::Active() && !signInLink.empty() && signInFor.empty() && signInCred.empty(); }
+    void ReopenSignIn() {
+        if (!Login::Active() || signInLink.empty()) return;
+        Test::Trace(L"login|reopen");
+        Util::Open(signInLink);
+    }
 
     void AddCurrentLogin() {
         auto live = Accounts::ReadLive();
@@ -850,26 +901,72 @@ namespace App {
         }).detach();
     }
 
-    void Delete(std::wstring id, HWND owner) {
+    // ---- deleting, with a way back
+
+    // The account just deleted, kept whole for a few seconds: Undo puts it back as it was.
+    struct Deleted { Account account; int at = 0; std::wstring name; bool valid = false; };
+    static Deleted undone;
+
+    // What an account leaves behind, removed once there is no way back.
+    static void Cleanup(const std::wstring& id, const std::wstring& name) {
+        WinShell::RemoveShortcuts(name); WinShell::RemoveIcons(id);
+        usage.erase(id); Accounts::SaveUsage(usage); Core::ForgetColor(id);
+        Manager::AccountGone(id);
+    }
+
+    static void ForgetDeleted() {
+        if (!undone.valid) return;
+        KillTimer(tray, TimerUndo);
+        auto d = undone; undone = {};
+        Cleanup(d.account.id, d.name);
+    }
+
+    bool CanUndoDelete() { return undone.valid; }
+
+    void UndoDelete() {
+        if (!undone.valid) return;
+        KillTimer(tray, TimerUndo);
+        auto d = undone; undone = {};
+        Test::Trace(L"restore|" + d.account.id);
+        std::thread([d] {
+            std::wstring error;
+            try { Accounts::Restore(d.account, d.at); } catch (const std::wstring& e) { error = e; } catch (...) { error = Tr(L"Something went wrong", L"Что-то пошло не так"); }
+            OnUi([error] {
+                if (!error.empty()) Dialogs::Info(Owner(nullptr), Tr(L"Couldn't bring it back", L"Не удалось вернуть"), error);
+                Refresh();
+            });
+        }).detach();
+    }
+
+    void Delete(std::wstring id, HWND owner, bool undo) {
         auto it = Find(id);
         if (!it || it->deleting) return;
         auto name = it->shownName;
-        std::wstring text = Tr(L"Its saved sign-in and shortcuts are removed from this PC. The account itself stays with OpenAI, and you can add it again any time",
-                               L"Сохранённый вход и ярлыки удалятся с этого компьютера. Сам аккаунт у OpenAI останется, его можно добавить снова");
-        if (it->active) text = Tr(L"Codex stays signed in to it until you switch to another account. ", L"Codex останется в нём, пока вы не переключитесь на другой аккаунт. ") + text;
-        if (!Dialogs::Ask(Owner(owner), Util::Format(Tr(L"Delete %s?", L"Удалить %s?"), Util::Q(name).c_str()), text, Tr(L"Delete", L"Да, удалить"), true)) return;
-        it = Find(id);   // the list may have been rebuilt while the dialog was open
-        if (!it || it->deleting) return;
         Test::Trace(L"delete|" + id);
+        ForgetDeleted();                       // one way back at a time
         it->deleting = true;
         RedrawAll();
-        std::thread([id, name] {
+        std::thread([id, name, undo, owner] {
             std::wstring error;
-            try { Accounts::Remove(id); } catch (const std::wstring& e) { error = e; } catch (...) { error = Tr(L"Something went wrong", L"Что-то пошло не так"); }
-            if (error.empty()) { WinShell::RemoveShortcuts(name); WinShell::RemoveIcons(id); }
-            OnUi([id, error] {
+            Deleted d; d.name = name;
+            try {
+                auto list = Accounts::Load();
+                for (size_t i = 0; i < list.size(); i++) if (list[i].id == id) { d.account = list[i]; d.at = (int)i; d.valid = true; }
+                Accounts::Remove(id);
+            } catch (const std::wstring& e) { error = e; } catch (...) { error = Tr(L"Something went wrong", L"Что-то пошло не так"); }
+            OnUi([id, name, error, d, undo, owner] {
                 if (!error.empty()) { if (auto x = Find(id)) x->deleting = false; Dialogs::Info(Owner(nullptr), Tr(L"Couldn't delete", L"Не удалось удалить"), error); }
-                else { usage.erase(id); Accounts::SaveUsage(usage); Core::ForgetColor(id); }
+                else if (undo && d.valid) {
+                    // Nothing was asked, so nothing is final yet: its shortcuts, limits and
+                    // browser profile wait until the way back closes.
+                    undone = d;
+                    SetTimer(tray, TimerUndo, 9500, nullptr);
+                    auto where = Surface::From(owner);
+                    if (!where) where = Surface::From(Picker::Handle());
+                    auto text = Util::Format(Tr(L"%s deleted", L"%s удалён"), Util::Q(name).c_str());
+                    if (where && where->Visible()) where->Toast(text, Tr(L"Undo", L"Отменить"), [] { UndoDelete(); });
+                }
+                else Cleanup(id, name);
                 Refresh();
             });
         }).detach();
@@ -918,9 +1015,11 @@ namespace App {
         AppendMenuW(m, MF_STRING | (it->masked ? MF_CHECKED : 0) | (MaskAll() ? MF_GRAYED : 0), 14, Tr(L"Hide its email", L"Скрывать его email"));
         AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(m, MF_STRING | (it->apiKey ? MF_GRAYED : 0), 9, Tr(L"Sign in again…", L"Войти заново…"));
+        AppendMenuW(m, MF_STRING | (it->apiKey ? MF_GRAYED : 0), 16, Tr(L"Password, 2FA and order…", L"Пароль, 2FA и заказ…"));
         AppendMenuW(m, MF_STRING, 10, Tr(L"Save auth.json…", L"Сохранить auth.json…"));
         AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(m, MF_STRING, 11, Tr(L"Delete…\tDel", L"Удалить…\tDel"));
+        // No ellipsis: nothing is asked, and Undo is there for a slip.
+        AppendMenuW(m, MF_STRING, 11, Tr(L"Delete\tDel", L"Удалить\tDel"));
         SetMenuDefaultItem(m, clickOpens ? 2 : 1, FALSE);
         int cmd = RunMenu(m, TPM_RIGHTBUTTON, at, owner);
         DestroyMenu(m);
@@ -932,6 +1031,7 @@ namespace App {
         case 3: RefreshUsage(true, id); break;
         case 4: Warmup({ id }); break;
         case 5: BeginRename(id); break;
+        case 16: Manager::ShowAccount(id); break;
         case 6: Move(id, -1); break;
         case 7: Move(id, 1); break;
         case 8: {
@@ -1099,6 +1199,8 @@ namespace App {
         }).detach();
     }
 
+    static void ImportBackupData(HWND owner, std::string data);
+
     void ImportBackup(HWND owner) {
         int how = Dialogs::Choose(Owner(owner), Tr(L"Import accounts", L"Импорт аккаунтов"),
                                   Tr(L"From a backup made with Back up all accounts, as a file or text. Codex Switcher's own exports work too",
@@ -1119,6 +1221,11 @@ namespace App {
             if (!Dialogs::Prompt(Owner(owner), Tr(L"Paste the backup", L"Вставьте копию"), Tr(L"It starts with cas1. (or css1. from Codex Switcher)", L"Она начинается с cas1. (или css1. из Codex Switcher)"), text, false, false, Tr(L"Next", L"Дальше"))) return;
             data = Util::Utf8(text);
         }
+        ImportBackupData(owner, std::move(data));
+    }
+
+    // A backup already in hand: from the file dialog, the clipboard or a file dropped on a window.
+    static void ImportBackupData(HWND owner, std::string data) {
         auto kind = Accounts::KindOf(data);
         if (kind == Accounts::BackupKind::None) { Dialogs::Info(Owner(owner), Tr(L"Couldn't import", L"Не удалось импортировать"), Tr(L"This isn't a backup of accounts", L"Это не резервная копия аккаунтов")); return; }
         std::wstring password;
@@ -1139,6 +1246,76 @@ namespace App {
                 RefreshUsage(true);
             });
         }).detach();
+    }
+
+    // ------------------------------------------------------------ adding, whatever it comes as
+
+    // Text that holds an account in one of the three shapes it travels in: a sign-in
+    // (auth.json), a backup, or a shop's order or a line email|password|2FA key.
+    static bool TakeText(const std::wstring& text, HWND owner) {
+        auto t = Util::Trim(text);
+        if (t.empty()) return false;
+        if (t[0] == L'{') {
+            json::Value v;
+            if (json::Parser::Parse(t, v) && v.type == json::Value::Object && !Accounts::IdentityOf(v).empty()) { Test::Trace(L"take|auth"); AddAuth(v, L"", false); return true; }
+        }
+        auto bytes = Util::Utf8(t);
+        if (Accounts::KindOf(bytes) != Accounts::BackupKind::None) { Test::Trace(L"take|backup"); ImportBackupData(owner, bytes); return true; }
+        if (!Creds::Parse(t, Core::NowMs()).creds.empty()) { Test::Trace(L"take|order"); Manager::ImportText(owner, t); return true; }
+        return false;
+    }
+
+    static void Say(HWND owner, const std::wstring& title, const std::wstring& text) {
+        auto where = Surface::From(owner);
+        if (where && where->Visible()) where->Toast(title);
+        else Dialogs::Info(Owner(owner), title, text);
+    }
+
+    void PasteAccounts(HWND owner) {
+        if (TakeText(Util::PasteText(owner), owner)) return;
+        Test::Trace(L"take|nothing");
+        Say(owner, Tr(L"No account on the clipboard", L"В буфере обмена нет аккаунта"),
+            Tr(L"Copy a shop's message, a line email|password|2FA key, an auth.json or a backup, and paste again",
+               L"Скопируйте сообщение магазина, строку email|пароль|ключ 2FA, auth.json или резервную копию и вставьте снова"));
+    }
+
+    void AddFiles(const std::vector<std::wstring>& files, HWND owner) {
+        for (auto& path : files) {
+            Test::Trace(L"drop|" + Util::Leaf(path));
+            auto bytes = Util::ReadBytes(path, 16u << 20);
+            if (Accounts::KindOf(bytes) != Accounts::BackupKind::None) { Test::Trace(L"take|backup"); ImportBackupData(owner, bytes); continue; }
+            if (TakeText(Util::Wide(bytes), owner)) continue;
+            Dialogs::Info(Owner(owner), Util::Format(Tr(L"%s isn't an account", L"%s — не аккаунт"), Util::Q(Util::Leaf(path)).c_str()),
+                          Tr(L"A file dropped here can be an auth.json, a backup of accounts, or text with lines email|password|2FA key",
+                             L"Сюда можно перетащить auth.json, резервную копию аккаунтов или текст со строками email|пароль|ключ 2FA"));
+        }
+    }
+
+    void AddMenu(POINT at, HWND owner) {
+        WinShell::AllowDark(owner, Gfx::T.dark);
+        HMENU m = CreatePopupMenu();
+        AppendMenuW(m, MF_STRING | (Login::Active() ? MF_GRAYED : 0), 1, Tr(L"Sign in in the browser\tCtrl+N", L"Войти в браузере\tCtrl+N"));
+        AppendMenuW(m, MF_STRING | (Login::Active() ? MF_GRAYED : 0), 7, Tr(L"Copy the sign-in link, for another browser", L"Скопировать ссылку входа, для другого браузера"));
+        AppendMenuW(m, MF_STRING, 2, Tr(L"Paste an order or email|password|2FA key\tCtrl+V", L"Вставить заказ или email|пароль|ключ 2FA\tCtrl+V"));
+        AppendMenuW(m, MF_STRING | (state.unknownLogin.empty() ? MF_GRAYED : 0), 3,
+                    state.unknownLogin.empty() ? Tr(L"Take the sign-in Codex uses now", L"Взять вход, который сейчас у Codex")
+                                               : Util::Format(Tr(L"Take the sign-in Codex uses now (%s)", L"Взять вход, который сейчас у Codex (%s)"), state.unknownLogin.c_str()).c_str());
+        AppendMenuW(m, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(m, MF_STRING, 4, Tr(L"From an auth.json file…", L"Из файла auth.json…"));
+        AppendMenuW(m, MF_STRING, 5, Tr(L"From a backup…", L"Из резервной копии…"));
+        if (state.legacy > 0) AppendMenuW(m, MF_STRING, 6, Util::Format(Tr(L"From Codex Switcher (%d)…", L"Из Codex Switcher (%d)…"), state.legacy).c_str());
+        SetMenuDefaultItem(m, 1, FALSE);
+        int cmd = RunMenu(m, TPM_RIGHTBUTTON, at, owner);
+        DestroyMenu(m);
+        switch (cmd) {
+        case 1: AddAccount(); break;
+        case 7: AddAccountByLink(); break;
+        case 2: PasteAccounts(owner); break;
+        case 3: AddCurrentLogin(); break;
+        case 4: ImportFile(owner); break;
+        case 5: ImportBackup(owner); break;
+        case 6: ImportLegacy(owner); break;
+        }
     }
 
     // ------------------------------------------------------------ the browser dashboard
@@ -1319,10 +1496,34 @@ namespace App {
             std::unique_ptr<Login::Result> r((Login::Result*)l);
             signInLink.clear();
             auto forId = signInFor; signInFor.clear();
+            auto credId = signInCred; signInCred.clear();
             RedrawAll();
-            if (r->cancelled) return 0;
-            if (!r->error.empty()) { Dialogs::Info(Owner(nullptr), Tr(L"Sign-in didn't finish", L"Вход не завершён"), r->error); return 0; }
-            AddAuth(r->auth, forId, true);
+            if (r->cancelled || !r->error.empty()) {
+                if (!credId.empty()) Manager::SignInStopped();
+                if (!r->cancelled) Dialogs::Info(credId.empty() ? Owner(nullptr) : Manager::Handle(), Tr(L"Sign-in didn't finish", L"Вход не завершён"), r->error);
+                return 0;
+            }
+            // A renewed sign-in must be that account's. Another one is offered as an account of
+            // its own rather than added behind the person's back.
+            if (!forId.empty()) {
+                auto got = Accounts::IdentityOf(r->auth);
+                std::wstring want;
+                for (auto& a : Accounts::Load()) if (a.id == forId) want = a.Identity();
+                if (!got.empty() && !want.empty() && got != want) {
+                    auto it = Find(forId);
+                    auto wanted = it ? it->shownName : forId, who = Accounts::Describe(r->auth).email;
+                    if (who.empty()) who = Tr(L"another account", L"другой аккаунт");
+                    Test::Trace(L"login|other|" + forId);
+                    int c = Dialogs::Choose(Owner(nullptr), Util::Format(Tr(L"You signed in as %s, not %s", L"Вы вошли как %s, а не %s"), who.c_str(), Util::Q(wanted).c_str()),
+                                            Util::Format(Tr(L"%s keeps its old sign-in. Try again with the right account, or add %s as an account of its own",
+                                                            L"У %s остался прежний вход. Попробуйте ещё раз под нужным аккаунтом или добавьте %s отдельным аккаунтом"), Util::Q(wanted).c_str(), who.c_str()),
+                                            { Tr(L"Try again", L"Попробовать ещё раз"), Tr(L"Add it separately", L"Добавить отдельно"), Tr(L"Cancel", L"Отмена") });
+                    if (c == 0) { BeginLogin(forId); return 0; }
+                    if (c != 1) return 0;
+                    forId.clear();   // a new account
+                }
+            }
+            AddAuth(r->auth, forId, true, credId);
             return 0;
         }
         case WM_ADDED: {
@@ -1346,6 +1547,7 @@ namespace App {
             }
             Refresh();
             RefreshUsage(true, d->a.id);
+            if (!d->credId.empty()) { Manager::Added(d->credId, d->a.id); return 0; }
             if (d->fromLogin || Picker::Visible()) { Picker::Show(); Picker::Added(d->a.id, d->a.existed); if (!d->a.existed) BeginRename(d->a.id); }
             else Notify(d->a.existed ? Tr(L"Sign-in updated", L"Вход обновлён") : Tr(L"Account added", L"Аккаунт добавлен"), Tr(L"It's on the list now", L"Он теперь в списке"));
             return 0;
@@ -1405,10 +1607,12 @@ namespace App {
             else if (w == 1) Exit();
             else if (w == 2) { ShowPicker(); AddAccount(); }
             else if (w == 3) Refresh();
+            else if (w == 4 && Test::On()) Manager::Remind();   // the demo's checks: reminders now, not in 30 s
             return 0;
         case WM_TIMER:
+            if (w == TimerUndo) { ForgetDeleted(); return 0; }   // the way back closed
             if (w == TimerRefresh) {
-                bool busy = Picker::Visible() || Flyout::Visible() || SettingsWin::Visible();
+                bool busy = Picker::Visible() || Flyout::Visible() || SettingsWin::Visible() || Manager::Visible();
                 for (auto& i : items) busy |= i.switching;
                 // Every 2 s while a window shows; every 20 s from the tray, to keep renewed tokens.
                 if (busy || ++quietTicks >= 10) { quietTicks = 0; Refresh(); }
@@ -1421,6 +1625,7 @@ namespace App {
             } else if (w == TimerUsage) {
                 if (UsageMinutes() > 0) RefreshUsage(false);
                 CheckTimedWarmups();
+                Manager::Remind();
             } else if (w == TimerUpdate) {
                 SetTimer(h, TimerUpdate, 6 * 60 * 60 * 1000, nullptr);
                 if (Update::Auto()) Update::Check(false);
@@ -1429,9 +1634,13 @@ namespace App {
                 if (Picker::Visible()) ClosePicker();
             }
             return 0;
-        case WM_SETTINGCHANGE:
-            if (l && wcscmp((const wchar_t*)l, L"ImmersiveColorSet") == 0) ThemeChanged();
+        case WM_SETTINGCHANGE: {
+            // The theme, high contrast and "Animation effects" all arrive here.
+            Gfx::ReadSystem();
+            bool colours = l && wcscmp((const wchar_t*)l, L"ImmersiveColorSet") == 0;
+            if (colours || w == SPI_SETHIGHCONTRAST || Gfx::HighContrast() != Gfx::T.contrast) ThemeChanged();
             return 0;
+        }
         }
         if (m == taskbarCreated) { AddIcon(); return 0; }   // Explorer restarted
         return DefWindowProcW(h, m, w, l);
